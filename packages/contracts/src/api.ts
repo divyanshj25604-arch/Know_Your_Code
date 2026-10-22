@@ -118,6 +118,7 @@ export interface Overview {
     status: 'pending' | 'ready' | 'failed' | 'unavailable';
     text?: string;
     refs?: { path: string; line: number }[];
+    modules?: { name: string; paths: string[] }[];
     provenance: 'explained';
   };
 }

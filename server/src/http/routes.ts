@@ -28,7 +28,7 @@ import type { Services } from '../services';
 const IdParam = z.object({ id: z.string().uuid() });
 const FileQuery = z.object({ path: z.string().min(1).max(1024) });
 
-function parse<T>(schema: z.ZodType<T>, value: unknown): T {
+function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): T {
   const r = schema.safeParse(value);
   if (!r.success)
     throw new AppError('INVALID_REQUEST', 'That request was not valid.', {

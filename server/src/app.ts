@@ -10,11 +10,15 @@ import type { Db } from './db/pool';
 import { AppError } from './http/errors';
 import { createServices, type Services } from './services';
 import { registerApiRoutes } from './http/routes';
+import { registerAiRoutes } from './http/aiRoutes';
 
 export interface AppDeps {
   config: Config;
   db: Db;
-  overrides?: { github?: import('./ingestion/github').GitHubClient };
+  overrides?: {
+    github?: import('./ingestion/github').GitHubClient;
+    llm?: import('./ai/llm').LlmClient | null;
+  };
 }
 
 declare module 'fastify' {
@@ -103,6 +107,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   registerApiRoutes(app, services);
+  registerAiRoutes(app, services);
 
   const staticDir = config.STATIC_DIR ?? path.resolve(process.cwd(), 'client/dist');
   if (existsSync(staticDir)) {

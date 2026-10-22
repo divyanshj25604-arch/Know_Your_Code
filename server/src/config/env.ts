@@ -17,10 +17,10 @@ const EnvSchema = z.object({
   MODEL_FAST: z.string().default('claude-haiku-5-5'),
   MODEL_STRONG: z.string().default('claude-sonnet-5-5'),
   // Prices are configuration, not facts baked into code. Verify against the provider's pricing page.
-  MODEL_FAST_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(1),
-  MODEL_FAST_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(5),
-  MODEL_STRONG_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(3),
-  MODEL_STRONG_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(15),
+  MODEL_FAST_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(0.1),
+  MODEL_FAST_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(0.5),
+  MODEL_STRONG_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(2),
+  MODEL_STRONG_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(10),
   DAILY_SPEND_CAP_USD: z.coerce.number().nonnegative().default(5),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 

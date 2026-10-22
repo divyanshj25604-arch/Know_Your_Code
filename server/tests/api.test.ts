@@ -77,7 +77,7 @@ describe('import pipeline over real HTTP + extraction + analysis', () => {
   it('imports a repo end to end and exposes tree, file, overview, resolve and relations', async () => {
     const { snapshotId, snap } = await importAndWait('https://github.com/acme/notes-api');
     expect(snap).toMatchObject({ status: 'ready', repository: { owner: 'acme', name: 'notes-api' } });
-    expect(snap.stages.map((s: { state: string }) => s.state)).toEqual(['done', 'done', 'done', 'skipped']);
+    expect(snap.stages.map((s: { state: string }) => s.state)).toEqual(['done', 'done', 'done', 'done']);
 
     const tree = (await get(`/api/v1/snapshots/${snapshotId}/tree`)).json().root;
     const names = JSON.stringify(tree);
@@ -96,7 +96,7 @@ describe('import pipeline over real HTTP + extraction + analysis', () => {
 
     const overview = (await get(`/api/v1/snapshots/${snapshotId}/overview`)).json();
     expect(overview.facts).toMatchObject({ languages: { js: 6 }, frameworks: ['express', 'mongoose'] });
-    expect(overview.summary).toMatchObject({ status: 'unavailable', provenance: 'explained' });
+    expect(overview.summary).toMatchObject({ status: 'ready', provenance: 'explained' });
     expect(overview.skipped).toContainEqual({ path: '.env', reason: 'secret_file' });
     expect(overview.startingPoints.length).toBeGreaterThan(0);
 
