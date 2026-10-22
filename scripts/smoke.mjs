@@ -123,7 +123,7 @@ await step('file, selection and verified relations', async () => {
   throw new Error('no function declaration found in the first 30 analysable files');
 });
 if (flag('--ai')) {
-  await step('explanation (real model)', async () => {
+  await step('explanation', async () => {
     const r = await req('POST', '/api/v1/explanations', {
       snapshotId,
       selection: symbol.sel,
@@ -137,7 +137,9 @@ if (flag('--ai')) {
       `error event: ${text.slice(text.indexOf('event: error'), text.indexOf('event: error') + 200)}`,
     );
     must(text.includes('event: section') && text.includes('event: done'), 'no explanation sections');
-    return `health.ai=${health.ai}`;
+    return health.ai === 'configured'
+      ? 'served by the configured AI provider'
+      : `served by ${health.ai} (NOT the real model)`;
   });
 }
 await step('deletes data', async () => {
