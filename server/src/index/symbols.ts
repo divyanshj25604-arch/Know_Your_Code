@@ -194,12 +194,13 @@ interface EdgeJoin {
   tgt_id: string | null;
   tgt_name: string | null;
   tgt_path: string | null;
+  tgt_line: number | null;
 }
 
 const EDGE_SELECT = `
   SELECT e.type, e.line, e.provenance, e.reason, e.meta, e.target_external,
          ss.id AS src_id, ss.qualified_name AS src_name, sf.path AS src_path,
-         ts.id AS tgt_id, ts.qualified_name AS tgt_name, tf.path AS tgt_path
+         ts.id AS tgt_id, ts.qualified_name AS tgt_name, tf.path AS tgt_path, ts.start_line AS tgt_line
   FROM edges e
   JOIN files sf ON sf.id = e.source_file_id
   LEFT JOIN symbols ss ON ss.id = e.source_symbol_id
@@ -252,14 +253,14 @@ export async function getRelations(db: Db, snapshotId: string, symbolId: string)
   const unresolved: Relations['unresolved'] = [];
   for (const e of outbound.rows) {
     if (e.type === 'calls' && e.tgt_id && e.tgt_path && !e.reason) {
-      const k = `${e.tgt_id}:${e.line}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
+      // One entry per callee, linking to where it is DEFINED (not the call site, which is in this symbol's own file).
+      if (seen.has(e.tgt_id)) continue;
+      seen.add(e.tgt_id);
       calls.push({
         symbolId: e.tgt_id,
         label: e.tgt_name ?? '',
         path: e.tgt_path,
-        line: e.line,
+        line: e.tgt_line ?? 1,
         provenance: e.provenance,
         via: 'call',
       });
@@ -276,10 +277,19 @@ export async function getRelations(db: Db, snapshotId: string, symbolId: string)
     }
   }
   // Calls: top 8 by proximity to the call-site's own file first; verified before pattern.
-  calls.sort((a, b) => a.line - b.line);
 
   return {
-    symbol: { id: sym.id, name: sym.name, kind: sym.kind, signature: sym.signature ?? null },
+    symbol: {
+      id: sym.id,
+      name: sym.name,
+      kind: sym.kind,
+      signature: sym.signature ?? null,
+      path: sym.path,
+      startLine: sym.startLine,
+      startCol: sym.startCol,
+      endLine: sym.endLine,
+      endCol: sym.endCol,
+    },
     definedIn: { path: sym.path, line: sym.startLine },
     calledBy,
     calls: calls.slice(0, 30),

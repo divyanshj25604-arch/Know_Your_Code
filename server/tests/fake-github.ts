@@ -7,6 +7,8 @@ export interface FakeGitHub {
   base: string;
   /** Register a repo so GET /{owner}/{repo}/tar.gz/{ref} serves it (any ref). */
   add(owner: string, repo: string, tgz: Buffer | (() => Promise<Buffer>)): void;
+  /** Make a repo answer with a fixed status (e.g. 403 + rate-limit header, 503). */
+  fail(owner: string, repo: string, status: number, headers?: Record<string, string>): void;
   requests: string[];
   close(): Promise<void>;
 }
@@ -15,9 +17,15 @@ export interface FakeGitHub {
 export async function startFakeGitHub(): Promise<FakeGitHub> {
   const repos = new Map<string, Buffer | (() => Promise<Buffer>)>();
   const requests: string[] = [];
+  const failures = new Map<string, { status: number; headers: Record<string, string> }>();
   const server = http.createServer(async (req, res) => {
     requests.push(req.url ?? '');
     const m = /^\/([^/]+)\/([^/]+)\/tar\.gz\/(.+)$/.exec(req.url ?? '');
+    const fail = m ? failures.get(`${m[1]}/${m[2]}`) : undefined;
+    if (fail) {
+      res.writeHead(fail.status, fail.headers).end('x');
+      return;
+    }
     const entry = m ? repos.get(`${m[1]}/${m[2]}`) : undefined;
     if (!entry) {
       res.writeHead(404).end('not found');
@@ -32,6 +40,7 @@ export async function startFakeGitHub(): Promise<FakeGitHub> {
   return {
     base: `http://127.0.0.1:${port}`,
     add: (o, r, t) => repos.set(`${o}/${r}`, t),
+    fail: (o, r, status, headers = {}) => failures.set(`${o}/${r}`, { status, headers }),
     requests,
     close: () => new Promise((r) => server.close(() => r())),
   };

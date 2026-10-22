@@ -93,7 +93,17 @@ export interface UnresolvedItem {
 }
 
 export interface Relations {
-  symbol: { id: string; name: string; kind: string; signature: string | null } | null;
+  symbol: {
+    id: string;
+    name: string;
+    kind: string;
+    signature: string | null;
+    path: string;
+    startLine: number;
+    startCol: number;
+    endLine: number;
+    endCol: number;
+  } | null;
   definedIn: { path: string; line: number } | null;
   calledBy: RelationItem[];
   calls: RelationItem[];

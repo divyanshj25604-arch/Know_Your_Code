@@ -116,6 +116,11 @@ describe('import pipeline over real HTTP + extraction + analysis', () => {
 
     const rel = (await get(`/api/v1/symbols/${resolved.symbol.id}/relations`)).json();
     expect(rel.calls.map((c: { label: string }) => c.label)).toContain('findUserByEmail');
+    // A call links to the callee's definition (userService.js:7), not to the call site (authController.js:4).
+    expect(rel.calls.find((c: { label: string }) => c.label === 'findUserByEmail')).toMatchObject({
+      path: 'src/services/userService.js',
+      line: 7,
+    });
     expect(
       rel.calledBy.map((c: { label: string; provenance: string }) => `${c.label}|${c.provenance}`),
     ).toContain('POST /login route registration|pattern');
