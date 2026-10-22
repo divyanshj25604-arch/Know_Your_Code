@@ -39,6 +39,18 @@ describe('cross-site request protection', () => {
     expect((await post({})).statusCode).toBe(202); // curl / server-to-server: no Origin header
   });
 
+  it('accepts the configured public origin even if a proxy rewrote Host, but nothing else', async () => {
+    await h.close();
+    await h.reset({
+      llm: new FakeLlm(),
+      repos: { 'acme/notes-api': { fixture: 'express-cjs' } },
+      env: { APP_BASE_URL: 'https://kyc.example.com' },
+    });
+    expect((await post({ origin: 'https://kyc.example.com' })).statusCode).toBe(202);
+    await h.app.services.runner.idle();
+    expect((await post({ origin: 'https://evil.example.com' })).statusCode).toBe(403);
+  });
+
   it('never blocks reads', async () => {
     const res = await h.app.inject({ url: '/api/v1/health', headers: { 'sec-fetch-site': 'cross-site' } });
     expect(res.statusCode).toBe(200);
@@ -83,6 +95,46 @@ describe('owner cookie', () => {
     });
     expect(forged.headers['set-cookie']).toBeTruthy();
     expect((await h.db.query('SELECT count(*)::int AS n FROM owners')).rows[0].n).toBe(2);
+  });
+});
+
+describe('proxy trust and cookies', () => {
+  it('does not trust X-Forwarded-For unless TRUST_PROXY is set (per-IP limit cannot be spoofed)', async () => {
+    await h.close();
+    await h.reset({
+      llm: new FakeLlm(),
+      repos: { 'acme/notes-api': { fixture: 'express-cjs' } },
+      env: { RATE_LIMIT_DISABLED: 'false', RATE_IMPORTS_PER_HOUR: '1' },
+    });
+    const call = (xff: string, cookie?: string) =>
+      h.app.inject({
+        method: 'POST',
+        url: '/api/v1/repositories',
+        payload: { url: 'https://github.com/acme/notes-api' },
+        headers: { 'x-forwarded-for': xff, ...(cookie ? { cookie } : {}) },
+      });
+    // IP limit is 4x the per-owner limit (4). Fresh owners each time, rotating the spoofed address.
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) codes.push((await call(`10.0.0.${i}`)).statusCode);
+    expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
+  });
+
+  it('marks the cookie Secure in production unless COOKIE_SECURE=false', async () => {
+    await h.close();
+    await h.reset({
+      llm: new FakeLlm(),
+      repos: { 'acme/notes-api': { fixture: 'express-cjs' } },
+      env: { NODE_ENV: 'production', COOKIE_SECRET: 'c'.repeat(20), COOKIE_SECURE: 'false' },
+    });
+    const res = await post({});
+    expect(String(res.headers['set-cookie'])).not.toMatch(/Secure/i);
+    await h.close();
+    await h.reset({
+      llm: new FakeLlm(),
+      repos: { 'acme/notes-api': { fixture: 'express-cjs' } },
+      env: { NODE_ENV: 'production', COOKIE_SECRET: 'c'.repeat(20) },
+    });
+    expect(String((await post({})).headers['set-cookie'])).toMatch(/Secure/i);
   });
 });
 

@@ -97,14 +97,26 @@ export async function createSnapshot(
   commitSha: string | null,
   retentionDays: number,
 ): Promise<string> {
-  const r = await db.query<{ id: string }>(
-    `INSERT INTO snapshots (repository_id, ref, commit_sha, status, stages, expires_at)
-     VALUES ($1,$2,$3,'queued',$4, now() + make_interval(days => $5)) RETURNING id`,
-    [repositoryId, ref, commitSha, JSON.stringify(INITIAL_STAGES), retentionDays],
-  );
-  const id = r.rows[0]!.id;
-  await db.query(`INSERT INTO jobs (snapshot_id, state) VALUES ($1,'queued')`, [id]);
-  return id;
+  try {
+    const r = await db.query<{ id: string }>(
+      `INSERT INTO snapshots (repository_id, ref, commit_sha, status, stages, expires_at)
+       VALUES ($1,$2,$3,'queued',$4, now() + make_interval(days => $5)) RETURNING id`,
+      [repositoryId, ref, commitSha, JSON.stringify(INITIAL_STAGES), retentionDays],
+    );
+    const id = r.rows[0]!.id;
+    await db.query(`INSERT INTO jobs (snapshot_id, state) VALUES ($1,'queued')`, [id]);
+    return id;
+  } catch (e) {
+    // Two requests for the same repository and commit raced (double click): the unique index admits one. Reuse it.
+    if ((e as { code?: string }).code === '23505' && commitSha) {
+      const r = await db.query<{ id: string }>(
+        'SELECT id FROM snapshots WHERE repository_id=$1 AND commit_sha=$2',
+        [repositoryId, commitSha],
+      );
+      if (r.rows[0]) return r.rows[0].id;
+    }
+    throw e;
+  }
 }
 
 /** A ready snapshot for the same repository and commit, if any (idempotent import, docs/01 FR-IMP-02). */

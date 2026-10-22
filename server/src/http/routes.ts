@@ -172,6 +172,16 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
     const b = parse(FeedbackRequestSchema, req.body);
     const ownerId = await getOwner(db, config, req, reply);
     limiter.check('feedback', ownerId, 300, 3600_000);
+    // Only the owner of the thing being rated can rate it (also rejects ids that do not exist).
+    const owned = await db.query(
+      b.targetType === 'explanation'
+        ? 'SELECT 1 FROM explanations WHERE id=$1 AND owner_id=$2'
+        : b.targetType === 'message'
+          ? 'SELECT 1 FROM messages m JOIN explanations e ON e.id=m.explanation_id WHERE m.id=$1 AND e.owner_id=$2'
+          : 'SELECT 1 FROM check_attempts c JOIN explanations e ON e.id=c.explanation_id WHERE c.id=$1 AND e.owner_id=$2',
+      [b.targetId, ownerId],
+    );
+    if (!owned.rowCount) throw new AppError('NOT_FOUND');
     await db.query(
       `INSERT INTO feedback (owner_id, target_type, target_id, rating, reason, comment) VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (owner_id, target_type, target_id) DO UPDATE SET rating=EXCLUDED.rating, reason=EXCLUDED.reason, comment=EXCLUDED.comment`,

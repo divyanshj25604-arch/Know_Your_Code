@@ -25,7 +25,7 @@ export async function getOwner(
       signed: true,
       httpOnly: true,
       sameSite: 'lax',
-      secure: config.NODE_ENV === 'production',
+      secure: config.COOKIE_SECURE ?? config.NODE_ENV === 'production',
       path: '/',
       maxAge: 30 * 24 * 3600,
     });

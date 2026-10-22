@@ -43,9 +43,12 @@ export class FakeLlm implements LlmClient {
     const input = /<task_input>\n([\s\S]*?)\n<\/task_input>/.exec(u)?.[1];
     const ti = (input ? JSON.parse(input) : {}) as Record<string, string | undefined>;
     const pack = /<repository_content[^>]*>\n([\s\S]*)\n<\/repository_content>/.exec(u)?.[1] ?? '';
-    const sel = /\[SELECTED_CODE\] file: (\S+) lines (\d+)-(\d+)/.exec(pack);
+    const sel = /\[SELECTED_CODE\] file: (\S+) lines (\d+)-(\d+)(?: \(selected lines (\d+)-(\d+)\))?/.exec(
+      pack,
+    );
     const path = sel?.[1] ?? 'unknown';
-    const first = Number(sel?.[2] ?? 1);
+    // Prefer the lines the student actually selected over the surrounding context shown in the pack.
+    const first = Number(sel?.[4] ?? sel?.[2] ?? 1);
     const codeLines = [...pack.matchAll(/^(\d+)\| (.*)$/gm)]
       .filter((m) => Number(m[1]) >= first)
       .slice(0, 12);

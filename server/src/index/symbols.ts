@@ -211,7 +211,7 @@ function callerLabel(e: EdgeJoin): string {
   const who = e.src_name ?? `${e.src_path} (top level)`;
   if (e.type === 'route_handler')
     return `${String(e.meta.method ?? '')} ${String(e.meta.path ?? '')} route registration`.trim();
-  if (e.type === 'references') return e.meta.jsx ? `${who} renders it` : `${who} uses it as a value`;
+  if (e.type === 'references') return e.meta.jsx ? `rendered by ${who}` : `used as a value in ${who}`;
   return who;
 }
 

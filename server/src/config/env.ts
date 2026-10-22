@@ -10,6 +10,11 @@ const EnvSchema = z.object({
   APP_BASE_URL: z.string().url().default('http://localhost:8080'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   COOKIE_SECRET: z.string().min(16).optional(),
+  // Set true only when running behind a reverse proxy you control (Replit, nginx...): it makes req.ip honour
+  // X-Forwarded-For. Left false, a client cannot spoof its IP to dodge the per-IP rate limit.
+  TRUST_PROXY: bool.default('false'),
+  // Defaults to true in production. Set false only for plain-http deployments (browsers drop Secure cookies there).
+  COOKIE_SECURE: bool.optional(),
 
   // AI
   LLM_PROVIDER: z.enum(['anthropic', 'fake']).default('anthropic'),

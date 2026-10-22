@@ -177,6 +177,7 @@ p {
   text-align: left;
 }
 .disclosure {
+  display: block;
   font: inherit;
   background: none;
   border: 0;

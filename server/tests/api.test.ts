@@ -270,6 +270,21 @@ describe('import pipeline over real HTTP + extraction + analysis', () => {
     expect(res.statusCode).toBe(410);
   });
 
+  it('two imports of the same commit racing do not 500: the second reuses the first snapshot', async () => {
+    const { createSnapshot, ensureOwner, upsertRepository } = await import('../src/index/snapshots');
+    const owner = await ensureOwner(db, null);
+    const repo = await upsertRepository(db, owner, 'acme', 'race');
+    const sha = 'a'.repeat(40);
+    const [a, b] = await Promise.all([
+      createSnapshot(db, repo, null, sha, 7),
+      createSnapshot(db, repo, null, sha, 7),
+    ]);
+    expect(a).toBe(b);
+    expect((await db.query('SELECT count(*)::int AS n FROM snapshots')).rows[0].n).toBe(1);
+    // Different commits are independent.
+    expect(await createSnapshot(db, repo, null, 'b'.repeat(40), 7)).not.toBe(a);
+  });
+
   it('validates ids and rejects malformed bodies without leaking internals', async () => {
     expect((await get('/api/v1/snapshots/not-a-uuid')).statusCode).toBe(400);
     const res = await post('/api/v1/repositories', { nope: 1 });

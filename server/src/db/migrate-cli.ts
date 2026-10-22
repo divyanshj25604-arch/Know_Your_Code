@@ -1,7 +1,9 @@
 import { loadConfig } from '../config/env';
+import { loadDotEnv } from '../config/dotenv';
 import { createPool } from './pool';
 import { migrate } from './migrate';
 
+loadDotEnv();
 const cfg = loadConfig();
 const db = createPool(cfg.DATABASE_URL);
 migrate(db)

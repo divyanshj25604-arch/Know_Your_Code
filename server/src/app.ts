@@ -40,7 +40,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         req: (req) => ({ method: req.method, url: req.url?.split('?')[0], id: req.id }),
       },
     },
-    trustProxy: true,
+    trustProxy: config.TRUST_PROXY,
     bodyLimit: 64 * 1024,
   });
   app.decorate('deps', deps);

@@ -208,9 +208,10 @@ export function useWorkspace(
       else if (m.event === 'meta') patchExpl(id, (e) => ({ ...e, meta: d as unknown as Meta }));
       else if (m.event === 'section')
         patchExpl(id, (e) => ({ ...e, sections: [...e.sections, d as unknown as Section] }));
-      else if (m.event === 'done')
+      else if (m.event === 'done') {
         patchExpl(id, (e) => ({ ...e, status: 'done', done: d as unknown as DoneInfo }));
-      else if (m.event === 'error')
+        void api.event('explanation_complete');
+      } else if (m.event === 'error')
         patchExpl(id, (e) => ({ ...e, status: 'error', error: d as unknown as StreamError }));
     },
     [patchExpl],

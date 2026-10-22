@@ -23,6 +23,8 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  *  - send restrictive security headers on every response.
  */
 export function registerSecurity(app: FastifyInstance, config: Config) {
+  // The public URL is always an acceptable origin, so a reverse proxy that rewrites Host cannot lock users out.
+  const publicHost = new URL(config.APP_BASE_URL).host;
   app.addHook('onRequest', async (req, reply) => {
     if (SAFE_METHODS.has(req.method)) return;
     const site = req.headers['sec-fetch-site'];
@@ -31,7 +33,8 @@ export function registerSecurity(app: FastifyInstance, config: Config) {
     if (!bad && typeof origin === 'string' && origin !== 'null') {
       try {
         // Compare normalised hosts (the URL parser drops default ports on both sides).
-        bad = new URL(origin).host !== new URL(`${req.protocol}://${req.host}`).host;
+        const originHost = new URL(origin).host;
+        bad = originHost !== new URL(`${req.protocol}://${req.host}`).host && originHost !== publicHost;
       } catch {
         bad = true;
       }

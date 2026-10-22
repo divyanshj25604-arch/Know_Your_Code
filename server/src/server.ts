@@ -1,10 +1,12 @@
 import { loadConfig, ConfigError } from './config/env';
+import { loadDotEnv } from './config/dotenv';
 import { createPool } from './db/pool';
 import { migrate } from './db/migrate';
 import { buildApp } from './app';
 import { scheduleRetention } from './jobs/retention';
 
 async function main() {
+  loadDotEnv();
   let config;
   try {
     config = loadConfig();

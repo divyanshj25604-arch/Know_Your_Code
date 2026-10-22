@@ -12,3 +12,4 @@ test-results/
 .vite/
 *.tsbuildinfo
 server/tests/.build/
+.vitest/
