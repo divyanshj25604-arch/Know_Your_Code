@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Config } from '../config/env';
 import { AppError } from '../http/errors';
 import { FakeLlm } from './fake';
+import { GroqLlm } from './groq';
 
 export type LlmTask = 'explain' | 'followup' | 'concept' | 'check' | 'overview';
 
@@ -30,7 +31,7 @@ export interface LlmOutput {
 
 /** Provider boundary (docs/10 §7). Nothing outside src/ai/llm.ts knows about a specific provider. */
 export interface LlmClient {
-  readonly kind: 'anthropic' | 'fake';
+  readonly kind: 'anthropic' | 'fake' | 'groq';
   complete(call: LlmCall): Promise<LlmOutput>;
 }
 
@@ -130,8 +131,14 @@ export class AnthropicLlm implements LlmClient {
   }
 }
 
+export { GroqLlm } from './groq';
+
 export function createLlm(config: Config, log?: { warn: (o: object, m: string) => void }): LlmClient | null {
   if (config.LLM_PROVIDER === 'fake') return new FakeLlm();
+  if (config.LLM_PROVIDER === 'groq') {
+    if (!config.GROQ_API_KEY) return null;
+    return new GroqLlm(config.GROQ_API_KEY, config.GROQ_API_BASE, log);
+  }
   if (!config.ANTHROPIC_API_KEY) return null;
   return new AnthropicLlm(config.ANTHROPIC_API_KEY, log);
 }

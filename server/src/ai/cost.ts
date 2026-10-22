@@ -5,6 +5,12 @@ import { AppError } from '../http/errors';
 export type Tier = 'fast' | 'strong';
 
 export function modelFor(config: Config, tier: Tier): string {
+  if (config.LLM_PROVIDER === 'groq') {
+    if (tier === 'fast') {
+      return config.MODEL_FAST === 'claude-haiku-5-5' ? 'llama-3.1-8b-instant' : config.MODEL_FAST;
+    }
+    return config.MODEL_STRONG === 'claude-sonnet-5-5' ? 'llama-3.3-70b-versatile' : config.MODEL_STRONG;
+  }
   return tier === 'fast' ? config.MODEL_FAST : config.MODEL_STRONG;
 }
 

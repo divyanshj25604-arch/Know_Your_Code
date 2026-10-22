@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 const bool = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1');
+const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -9,16 +11,18 @@ const EnvSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   APP_BASE_URL: z.string().url().default('http://localhost:8080'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  COOKIE_SECRET: z.string().min(16).optional(),
+  COOKIE_SECRET: emptyToUndefined(z.string().min(16).optional()),
   // Set true only when running behind a reverse proxy you control (Replit, nginx...): it makes req.ip honour
   // X-Forwarded-For. Left false, a client cannot spoof its IP to dodge the per-IP rate limit.
   TRUST_PROXY: bool.default('false'),
   // Defaults to true in production. Set false only for plain-http deployments (browsers drop Secure cookies there).
-  COOKIE_SECURE: bool.optional(),
+  COOKIE_SECURE: emptyToUndefined(bool.optional()),
 
   // AI
-  LLM_PROVIDER: z.enum(['anthropic', 'fake']).default('anthropic'),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  LLM_PROVIDER: z.enum(['anthropic', 'fake', 'groq']).default('anthropic'),
+  ANTHROPIC_API_KEY: emptyToUndefined(z.string().min(1).optional()),
+  GROQ_API_KEY: emptyToUndefined(z.string().min(1).optional()),
+  GROQ_API_BASE: z.string().url().default('https://api.groq.com/openai/v1'),
   MODEL_FAST: z.string().default('claude-haiku-5-5'),
   MODEL_STRONG: z.string().default('claude-sonnet-5-5'),
   // Prices are configuration, not facts baked into code. Verify against the provider's pricing page.
@@ -30,7 +34,7 @@ const EnvSchema = z.object({
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
   // GitHub
-  GITHUB_TOKEN: z.string().min(1).optional(),
+  GITHUB_TOKEN: emptyToUndefined(z.string().min(1).optional()),
   GITHUB_API_BASE: z.string().url().default('https://api.github.com'),
   GITHUB_CODELOAD_BASE: z.string().url().default('https://codeload.github.com'),
 
@@ -69,7 +73,7 @@ const EnvSchema = z.object({
   IMPORT_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   // "auto" uses a worker thread when the compiled worker exists (production build) and runs inline otherwise.
   ANALYSIS_MODE: z.enum(['auto', 'worker', 'inline']).default('auto'),
-  ANALYSIS_WORKER_PATH: z.string().optional(),
+  ANALYSIS_WORKER_PATH: emptyToUndefined(z.string().optional()),
   ANALYSIS_MAX_MEMORY_MB: z.coerce.number().int().min(256).default(2048),
 
   // Rate limits
@@ -78,7 +82,7 @@ const EnvSchema = z.object({
   RATE_EXPLANATIONS_PER_HOUR: z.coerce.number().int().positive().default(60),
   RATE_FOLLOWUPS_PER_HOUR: z.coerce.number().int().positive().default(120),
 
-  STATIC_DIR: z.string().optional(),
+  STATIC_DIR: emptyToUndefined(z.string().optional()),
   APP_VERSION: z.string().default('1.0.0'),
 });
 
@@ -98,6 +102,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     if (!c.COOKIE_SECRET) problems.push('COOKIE_SECRET is required in production (>= 16 chars)');
     if (c.LLM_PROVIDER === 'anthropic' && !c.ANTHROPIC_API_KEY) {
       problems.push('ANTHROPIC_API_KEY is required in production when LLM_PROVIDER=anthropic');
+    }
+    if (c.LLM_PROVIDER === 'groq' && !c.GROQ_API_KEY) {
+      problems.push('GROQ_API_KEY is required in production when LLM_PROVIDER=groq');
     }
   }
   if (problems.length)
