@@ -154,7 +154,7 @@ export async function markReady(
   contentHash: string | null,
 ) {
   await db.query(
-    `UPDATE snapshots SET status=$2, overview=$3, skipped=$4, stages=$5, commit_sha=COALESCE($6, commit_sha), content_hash=$7 WHERE id=$1`,
+    `UPDATE snapshots SET status=$2, overview=$3, skipped=$4, stages=$5, commit_sha=COALESCE($6, commit_sha), content_hash=COALESCE($7, content_hash) WHERE id=$1`,
     [
       id,
       status,

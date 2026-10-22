@@ -81,6 +81,8 @@ export interface RelationItem {
   path: string;
   line: number;
   provenance: Exclude<Provenance, 'explained'>;
+  /** How the relation arises: a direct call, a use as a value (callback, JSX, export), or a route registration. */
+  via: 'call' | 'reference' | 'route';
 }
 
 export interface UnresolvedItem {

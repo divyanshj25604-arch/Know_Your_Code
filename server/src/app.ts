@@ -8,22 +8,23 @@ import { ERROR_CODES, type HealthView } from '@kyc/contracts';
 import type { Config } from './config/env';
 import type { Db } from './db/pool';
 import { AppError } from './http/errors';
+import { createServices, type Services } from './services';
+import { registerApiRoutes } from './http/routes';
 
 export interface AppDeps {
   config: Config;
   db: Db;
+  overrides?: { github?: import('./ingestion/github').GitHubClient };
 }
 
 declare module 'fastify' {
   interface FastifyInstance {
     deps: AppDeps;
+    services: Services;
   }
 }
 
-export async function buildApp(
-  deps: AppDeps,
-  register?: (app: FastifyInstance) => Promise<void> | void,
-): Promise<FastifyInstance> {
+export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config } = deps;
   const app = Fastify({
     logger: {
@@ -38,6 +39,11 @@ export async function buildApp(
     bodyLimit: 64 * 1024,
   });
   app.decorate('deps', deps);
+  const services = createServices(config, deps.db, app.log, deps.overrides);
+  app.decorate('services', services);
+  app.addHook('onClose', async () => {
+    await services.runner.stop();
+  });
 
   await app.register(cookie, { secret: config.cookieSecret });
   if (!config.RATE_LIMIT_DISABLED) {
@@ -91,12 +97,12 @@ export async function buildApp(
       db,
       ai,
       github: config.GITHUB_TOKEN ? 'token' : 'anonymous',
-      queueDepth: 0,
+      queueDepth: services.runner.depth,
       version: config.APP_VERSION,
     };
   });
 
-  if (register) await register(app);
+  registerApiRoutes(app, services);
 
   const staticDir = config.STATIC_DIR ?? path.resolve(process.cwd(), 'client/dist');
   if (existsSync(staticDir)) {

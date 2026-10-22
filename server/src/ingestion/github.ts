@@ -159,6 +159,14 @@ export class GitHubClient {
     return sha.toLowerCase();
   }
 
+  /** Validate that the repository/ref is reachable and within limits without downloading it. */
+  async probe(repo: RepoRef, signal: AbortSignal): Promise<string | null> {
+    const h = await this.openTarball(repo, signal);
+    h.stream.on('error', () => undefined);
+    h.abort();
+    return h.commitSha;
+  }
+
   /**
    * Open the archive stream. API mode: resolve to a commit SHA first (stable snapshot). Anonymous mode:
    * download straight from codeload by ref (or HEAD), SHA unknown.

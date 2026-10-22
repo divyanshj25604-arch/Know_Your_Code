@@ -22,6 +22,8 @@ async function main() {
     process.exit(1);
   }
   const app = await buildApp({ config, db });
+  const recovered = await app.services.runner.recover();
+  if (recovered) app.log.info({ recovered }, 're-queued interrupted imports');
   const shutdown = async (sig: string) => {
     app.log.info({ sig }, 'shutting down');
     await app.close();

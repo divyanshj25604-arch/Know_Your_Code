@@ -5,7 +5,7 @@ export function testConfig(over: Record<string, string> = {}): Config {
   return loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgres://localhost/kyc_test',
-    LOG_LEVEL: 'silent',
+    LOG_LEVEL: process.env.TEST_LOG_LEVEL ?? 'silent',
     LLM_PROVIDER: 'fake',
     RATE_LIMIT_DISABLED: 'true',
     STATIC_DIR: '/nonexistent',
