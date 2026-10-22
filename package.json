@@ -19,7 +19,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check . --ignore-path .gitignore",
+    "format:check": "prettier --check .",
     "test": "npm run test -w server && npm run test -w client",
     "test:e2e": "playwright test",
     "test:live": "LIVE=1 playwright test --project=live",

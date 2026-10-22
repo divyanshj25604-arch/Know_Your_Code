@@ -1,4 +1,6 @@
 docs/
 package-lock.json
-tests/fixtures/
+**/tests/fixtures/
 dist/
+playwright-report/
+test-results/
