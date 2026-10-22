@@ -1,6 +1,6 @@
 # Know Your Code
 
-> *Understand the code you build.*
+> _Understand the code you build._
 
 **Know Your Code (KYC)** is a free browser workspace for CS students. Paste a public GitHub repository URL, select any line of your own JavaScript/TypeScript code, and get a plain-language explanation. Alongside it you see the code's callers, callees and definitions, **computed by static analysis and linked to exact lines**, so every relationship is verifiable with a click.
 
@@ -41,24 +41,24 @@ A TypeScript modular monolith on a Replit Reserved VM:
 
 All project documents live in [`docs/`](docs/). Start with [`docs/00_Master_Product_Blueprint.md`](docs/00_Master_Product_Blueprint.md), and see [`docs/README.md`](docs/README.md) for how the documents relate and who should read what.
 
-| Doc | Topic |
-|---|---|
-| [00](docs/00_Master_Product_Blueprint.md) | Master product blueprint |
-| [01](docs/01_Product_Requirements_Document.md) | Product requirements (source of truth) |
-| [02](docs/02_User_Research_and_Validation.md) | User research and validation |
-| [03](docs/03_Competitive_Analysis.md) | Competitive analysis |
-| [04](docs/04_MVP_Scope_and_Prioritization.md) | MVP scope and prioritization |
-| [05](docs/05_End_to_End_User_Flow.md) | End-to-end user flow |
-| [06](docs/06_Product_Design_and_Design_System.md) | Product design and design system |
-| [07](docs/07_System_Architecture.md) | System architecture |
+| Doc                                                     | Topic                                  |
+| ------------------------------------------------------- | -------------------------------------- |
+| [00](docs/00_Master_Product_Blueprint.md)               | Master product blueprint               |
+| [01](docs/01_Product_Requirements_Document.md)          | Product requirements (source of truth) |
+| [02](docs/02_User_Research_and_Validation.md)           | User research and validation           |
+| [03](docs/03_Competitive_Analysis.md)                   | Competitive analysis                   |
+| [04](docs/04_MVP_Scope_and_Prioritization.md)           | MVP scope and prioritization           |
+| [05](docs/05_End_to_End_User_Flow.md)                   | End-to-end user flow                   |
+| [06](docs/06_Product_Design_and_Design_System.md)       | Product design and design system       |
+| [07](docs/07_System_Architecture.md)                    | System architecture                    |
 | [08](docs/08_Repository_Ingestion_and_Code_Analysis.md) | Repository ingestion and code analysis |
-| [09](docs/09_AI_System_Design_and_Prompts.md) | AI system design and prompts |
-| [10](docs/10_API_and_Database_Specification.md) | API and database specification |
-| [11](docs/11_Test_Strategy_and_AI_Evaluation.md) | Test strategy and AI evaluation |
-| [12](docs/12_Three_Week_Sprint_and_Deployment_Plan.md) | Three-week sprint and deployment plan |
-| [13](docs/13_Brand_Strategy_and_Positioning.md) | Brand strategy and positioning |
-| [14](docs/14_Go_to_Market_and_Launch_Strategy.md) | Go-to-market and launch strategy |
-| [99](docs/99_Consistency_Audit.md) | Consistency audit |
+| [09](docs/09_AI_System_Design_and_Prompts.md)           | AI system design and prompts           |
+| [10](docs/10_API_and_Database_Specification.md)         | API and database specification         |
+| [11](docs/11_Test_Strategy_and_AI_Evaluation.md)        | Test strategy and AI evaluation        |
+| [12](docs/12_Three_Week_Sprint_and_Deployment_Plan.md)  | Three-week sprint and deployment plan  |
+| [13](docs/13_Brand_Strategy_and_Positioning.md)         | Brand strategy and positioning         |
+| [14](docs/14_Go_to_Market_and_Launch_Strategy.md)       | Go-to-market and launch strategy       |
+| [99](docs/99_Consistency_Audit.md)                      | Consistency audit                      |
 
 The original archive is kept at [`docs/archive/know-your-code-docs.zip`](docs/archive/know-your-code-docs.zip).
 
