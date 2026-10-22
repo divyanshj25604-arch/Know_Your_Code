@@ -12,10 +12,9 @@ export async function openWorkspace(page: Page, repo = 'acme/notes-api') {
 }
 
 export async function openFile(page: Page, path: string) {
-  const parts = path.split('/');
-  const filter = page.getByLabel('Filter files by name');
-  await filter.fill(parts[parts.length - 1]!);
-  await page.getByRole('treeitem', { name: parts[parts.length - 1]!, exact: true }).click();
+  // Filter by the full path and pick the row by its title: basenames like index.ts are not unique.
+  await page.getByLabel('Filter files by name').fill(path);
+  await page.locator(`[role="treeitem"][title="${path}"]`).click();
   await expect(page.locator('.viewer-head .mono')).toHaveText(path);
 }
 

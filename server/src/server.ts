@@ -25,6 +25,16 @@ async function main() {
   const app = await buildApp({ config, db });
   const recovered = await app.services.runner.recover();
   if (recovered) app.log.info({ recovered }, 're-queued interrupted imports');
+  if (config.NODE_ENV === 'production' && config.LLM_PROVIDER === 'fake') {
+    app.log.warn(
+      'LLM_PROVIDER=fake in production: explanations come from the deterministic TEST provider, not Claude',
+    );
+  }
+  if (!config.GITHUB_TOKEN) {
+    app.log.warn(
+      'GITHUB_TOKEN is not set: imports use anonymous codeload and cannot pre-check repository size or visibility',
+    );
+  }
   const stopRetention = scheduleRetention(db, app.log);
   const shutdown = async (sig: string) => {
     app.log.info({ sig }, 'shutting down');

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { createPool } from '../src/db/pool';
 import { testConfig, testDb } from './helpers';
 
 describe('GET /api/v1/health', () => {
@@ -21,6 +22,17 @@ describe('GET /api/v1/health', () => {
     const res = await app.inject({ url: '/api/v1/health' });
     expect(res.json()).toMatchObject({ status: 'degraded', ai: 'not_configured' });
     await app.close();
+  });
+
+  it('returns 503 when the database is unreachable and exposes no connection details', async () => {
+    const bad = createPool('postgres://localhost:1/nope');
+    const app = await buildApp({ config, db: bad });
+    const res = await app.inject({ url: '/api/v1/health' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ status: 'degraded', db: 'down' });
+    expect(res.body).not.toMatch(/localhost|nope|ECONN/);
+    await app.close();
+    await bad.end().catch(() => undefined);
   });
 
   it('never leaks internals on unknown API routes', async () => {

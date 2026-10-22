@@ -85,7 +85,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
   });
 
-  app.get('/api/v1/health', async (): Promise<HealthView> => {
+  // Liveness + readiness in one: 503 when the database is unreachable (the app cannot serve), 200 "degraded" when
+  // only the AI provider is missing (browsing and verified relations still work). No secrets or hostnames are exposed.
+  app.get('/api/v1/health', async (_req, reply): Promise<HealthView> => {
     let db: HealthView['db'] = 'ok';
     try {
       await deps.db.query('SELECT 1');
@@ -95,9 +97,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const ai: HealthView['ai'] =
       config.LLM_PROVIDER === 'fake'
         ? 'test_provider'
-        : config.ANTHROPIC_API_KEY
+        : services.ai.configured
           ? 'configured'
           : 'not_configured';
+    if (db === 'down') reply.status(503);
     return {
       status: db === 'ok' && ai !== 'not_configured' ? 'ok' : 'degraded',
       db,
@@ -111,7 +114,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerApiRoutes(app, services);
   registerAiRoutes(app, services);
 
-  const staticDir = config.STATIC_DIR ?? path.resolve(process.cwd(), 'client/dist');
+  const staticDir = path.resolve(config.STATIC_DIR ?? path.resolve(process.cwd(), 'client/dist'));
   if (existsSync(staticDir)) {
     await app.register(fastifyStatic, { root: staticDir, wildcard: false });
     app.setNotFoundHandler((req, reply) => {
