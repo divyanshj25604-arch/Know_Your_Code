@@ -337,7 +337,7 @@ export async function topSymbols(
      FROM edges e JOIN symbols s ON s.id = e.target_symbol_id JOIN files f ON f.id = s.file_id
      WHERE e.snapshot_id=$1 AND e.type IN ('calls','references','route_handler')
        AND s.kind IN ('function','method','class') AND s.tags::text NOT LIKE '%callback%'
-       AND f.path !~* '(^|/)(tests?|__tests__|spec|specs|e2e|fixtures?|mocks?)/|\.(test|spec)\.[a-z]+$'
+       AND f.path !~* '(^|/)(tests?|__tests__|spec|specs|e2e|fixtures?|mocks?)/|\\.(test|spec)\\.[a-z]+$'
      GROUP BY s.id, s.qualified_name, f.path, s.start_line ORDER BY uses DESC, f.path, s.start_line LIMIT $2`,
     [snapshotId, limit],
   );

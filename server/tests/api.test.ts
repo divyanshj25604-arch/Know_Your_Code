@@ -46,6 +46,17 @@ beforeEach(async () => {
     'notes-api',
     await fixtureTarball('express-cjs', [
       { name: '.env', content: 'MONGO_URL=mongodb://admin:hunter2hunter2@db.example.com/notes' },
+      // Test helpers must not crowd out real starting points, however often they are called.
+      {
+        name: 'test/helper.js',
+        content:
+          'function help() {}\nfunction a() { help(); help(); help(); help(); }\nmodule.exports = { help, a };\n',
+      },
+      {
+        name: 'src/util.spec.js',
+        content:
+          'function spec() {}\nfunction b() { spec(); spec(); spec(); spec(); }\nmodule.exports = { spec, b };\n',
+      },
       { name: 'src/config.js', content: "module.exports = { token: 'ghp_" + 'a'.repeat(36) + "' };\n" },
     ]),
   );
@@ -95,10 +106,13 @@ describe('import pipeline over real HTTP + extraction + analysis', () => {
     expect(cfg.content).toContain('[REDACTED]');
 
     const overview = (await get(`/api/v1/snapshots/${snapshotId}/overview`)).json();
-    expect(overview.facts).toMatchObject({ languages: { js: 6 }, frameworks: ['express', 'mongoose'] });
+    expect(overview.facts).toMatchObject({ languages: { js: 8 }, frameworks: ['express', 'mongoose'] });
     expect(overview.summary).toMatchObject({ status: 'ready', provenance: 'explained' });
     expect(overview.skipped).toContainEqual({ path: '.env', reason: 'secret_file' });
     expect(overview.startingPoints.length).toBeGreaterThan(0);
+    expect(JSON.stringify(overview.startingPoints)).not.toMatch(/help|spec/);
+    // External-package calls are a known boundary, not a failure to analyse.
+    expect(overview.facts.unresolvedCount).toBeLessThan(overview.facts.edgeCount);
 
     // Select the `login` function name -> resolves to the function with relations.
     const resolved = (
