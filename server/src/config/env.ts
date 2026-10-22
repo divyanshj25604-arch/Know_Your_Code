@@ -62,6 +62,10 @@ const EnvSchema = z.object({
   MAX_TOTAL_ENTRIES: z.coerce.number().int().positive().default(20_000),
   IMPORT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   IMPORT_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  // "auto" uses a worker thread when the compiled worker exists (production build) and runs inline otherwise.
+  ANALYSIS_MODE: z.enum(['auto', 'worker', 'inline']).default('auto'),
+  ANALYSIS_WORKER_PATH: z.string().optional(),
+  ANALYSIS_MAX_MEMORY_MB: z.coerce.number().int().min(256).default(2048),
 
   // Rate limits
   RATE_LIMIT_DISABLED: bool.default('false'),

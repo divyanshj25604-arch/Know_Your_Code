@@ -5,6 +5,13 @@ test.describe('critical journey (deterministic mode: real server, ingestion, ana
   test('paste a repo → read code → select a function → verified relations + explanation → follow a caller and come back → follow-up → concept → depth → optional check → feedback → delete', async ({
     page,
   }) => {
+    // The CSP must not break the app: collect console errors and assert none are policy violations.
+    const violations: string[] = [];
+    page.on('console', (m) => {
+      if (/content security policy|refused to/i.test(m.text())) violations.push(m.text());
+    });
+    page.on('pageerror', (e) => violations.push(`pageerror: ${e.message}`));
+
     // Landing and entry.
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Understand the code you build.' })).toBeVisible();
@@ -110,6 +117,7 @@ test.describe('critical journey (deterministic mode: real server, ingestion, ana
     await expect(page.getByRole('heading', { name: 'Understand the code you build.' })).toBeVisible();
     await page.goto(repoUrl);
     await expect(page.getByRole('alert')).toBeVisible();
+    expect(violations).toEqual([]);
   });
 
   test('secrets are never shown and repository text cannot steer the assistant', async ({ page }) => {

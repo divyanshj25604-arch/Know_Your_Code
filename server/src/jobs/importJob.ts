@@ -7,7 +7,7 @@ import type { Db } from '../db/pool';
 import { AppError } from '../http/errors';
 import { GitHubClient } from '../ingestion/github';
 import { extractTarball, type ExtractLimits } from '../ingestion/extract';
-import { analyse } from '../analysis/analyse';
+import { runAnalysis } from '../analysis/runner';
 import { readPathAliases } from '../analysis/project';
 import { buildOverview } from '../analysis/overview';
 import { getSnapshot, markFailed, markReady, setStages, setStatus } from '../index/snapshots';
@@ -133,11 +133,15 @@ export async function runImport(deps: ImportDeps, snapshotId: string): Promise<v
     const files = await loadAnalysableFiles(db, snapshotId);
     const cfg = await loadConfigFiles(db, snapshotId);
     const aliases = readPathAliases(files, cfg);
-    const result = await analyse(files, {
+    const result = await runAnalysis(files, {
       knownPaths: [...fileIds.keys()],
       aliases,
       checkAbort,
       onProgress: (d, t) => void stages.progress('analysing', d, t),
+      mode: config.ANALYSIS_MODE,
+      ...(config.ANALYSIS_WORKER_PATH ? { workerPath: config.ANALYSIS_WORKER_PATH } : {}),
+      timeoutMs: Math.max(1000, deadline - Date.now()),
+      maxMemoryMb: config.ANALYSIS_MAX_MEMORY_MB,
     });
     await persistAnalysis(db, snapshotId, fileIds, result);
     await stages.done('analysing');

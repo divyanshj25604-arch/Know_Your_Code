@@ -11,3 +11,4 @@ playwright-report/
 test-results/
 .vite/
 *.tsbuildinfo
+server/tests/.build/

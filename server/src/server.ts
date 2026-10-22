@@ -2,6 +2,7 @@ import { loadConfig, ConfigError } from './config/env';
 import { createPool } from './db/pool';
 import { migrate } from './db/migrate';
 import { buildApp } from './app';
+import { scheduleRetention } from './jobs/retention';
 
 async function main() {
   let config;
@@ -24,8 +25,12 @@ async function main() {
   const app = await buildApp({ config, db });
   const recovered = await app.services.runner.recover();
   if (recovered) app.log.info({ recovered }, 're-queued interrupted imports');
+  const stopRetention = scheduleRetention(db, app.log);
   const shutdown = async (sig: string) => {
     app.log.info({ sig }, 'shutting down');
+    stopRetention();
+    // Do not wait forever for an import in flight: it is re-queued on the next boot.
+    setTimeout(() => process.exit(0), 10_000).unref();
     await app.close();
     await db.end();
     process.exit(0);

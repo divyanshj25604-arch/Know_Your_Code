@@ -11,6 +11,7 @@ import { AppError } from './http/errors';
 import { createServices, type Services } from './services';
 import { registerApiRoutes } from './http/routes';
 import { registerAiRoutes } from './http/aiRoutes';
+import { registerSecurity } from './http/security';
 
 export interface AppDeps {
   config: Config;
@@ -49,6 +50,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     await services.runner.stop();
   });
 
+  registerSecurity(app, config);
   await app.register(cookie, { secret: config.cookieSecret });
   if (!config.RATE_LIMIT_DISABLED) {
     await app.register(rateLimit, { global: true, max: 600, timeWindow: '1 minute' });

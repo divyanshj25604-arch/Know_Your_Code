@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 import { cpSync } from 'node:fs';
 
 export default defineConfig({
-  entry: ['src/server.ts', 'src/db/migrate-cli.ts'],
+  entry: ['src/server.ts', 'src/db/migrate-cli.ts', 'src/analysis/worker.ts'],
   format: ['esm'],
   target: 'node20',
   outDir: 'dist',
