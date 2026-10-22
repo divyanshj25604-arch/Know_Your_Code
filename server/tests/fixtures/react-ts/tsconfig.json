@@ -1,0 +1,4 @@
+{
+  // JSONC comment: tsconfig files commonly contain these
+  "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] }, "jsx": "react-jsx" }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "notes-api",
+  "dependencies": {
+    "express": "^4.18.0",
+    "mongoose": "^8.0.0"
+  }
+}
