@@ -21,12 +21,13 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run test -w server && npm run test -w client",
-    "test:e2e": "playwright test",
-    "test:live": "LIVE=1 playwright test --project=live",
+    "test:e2e": "npm run build -w client && playwright test --project=deterministic",
+    "test:live": "npm run build && LIVE=1 playwright test --project=live",
     "db:migrate": "npm run db:migrate -w server",
     "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
     "concurrently": "^10.0.6",

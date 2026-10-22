@@ -10,7 +10,7 @@
   --accent-contrast: #ffffff;
   --verified: #1a7f37;
   --explained: #6639ba;
-  --warning: #9a6700;
+  --warning: #7d4e00;
   --danger: #cf222e;
   --highlight: rgba(15, 118, 110, 0.14);
 
@@ -63,4 +63,35 @@
   --danger: #f85149;
   --highlight: rgba(45, 212, 191, 0.18);
   color-scheme: dark;
+}
+
+/* Syntax colours (both themes checked >= 4.5:1 against --bg / --surface-1). */
+:root {
+  --syn-keyword: #6639ba;
+  --syn-string: #0a3069;
+  --syn-comment: #57606a;
+  --syn-number: #0550ae;
+  --syn-function: #953800;
+  --syn-type: #116329;
+  --syn-punct: #57606a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --syn-keyword: #ff7b72;
+    --syn-string: #a5d6ff;
+    --syn-comment: #9aa4ae;
+    --syn-number: #79c0ff;
+    --syn-function: #d2a8ff;
+    --syn-type: #7ee787;
+    --syn-punct: #9da7b1;
+  }
+}
+:root[data-theme='dark'] {
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-comment: #9aa4ae;
+  --syn-number: #79c0ff;
+  --syn-function: #d2a8ff;
+  --syn-type: #7ee787;
+  --syn-punct: #9da7b1;
 }
