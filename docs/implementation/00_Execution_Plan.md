@@ -1,5 +1,9 @@
 # V1 Execution Plan
 
+> **Status:** executed. This file records the plan and the decisions made along the way; the result is described in
+> `01_Implementation_Status.md`. Milestone order changed slightly in practice: backend (ingestion → analysis → AI) was built
+> and tested before the UI, and the hardening, deployment and documentation milestones followed.
+
 Branch: `V1_KYC` (from `main` @ `49d1268`). Implements the documentation in `docs/` (source of truth: `01`).
 
 ## 1. Starting point
@@ -60,10 +64,15 @@ tests/               fixtures, e2e (Playwright)
 |---|---|---|
 | ADR-11 | npm workspaces, not pnpm | pnpm absent; npm is the incumbent tool in this environment; avoids installing global tooling |
 | ADR-12 | GitHub API optional; codeload fallback | API rate limit exhausted; metadata (private/size) pre-check degrades gracefully, tarball cap still enforced |
-| ADR-13 | ts-morph runs in the main process (no worker thread) for V1 | `07` lists the worker thread as a *Should*/open question; concurrency is capped at 2 imports and per-file caps apply. Revisit if T-1 measurements show API stalls |
+| ADR-13 | ts-morph initially in the main process; **superseded**: analysis runs in a worker thread (inline fallback in dev/tests) | Measured stalls of up to 1.1 s on the API during imports (ky); with the worker the worst case was 19 ms |
 | ADR-14 | Plain SQL migrations + a ~40-line runner, not drizzle-kit | `10` allows `node-pg-migrate` *or* drizzle; a tiny runner avoids an ORM we would not use (queries are hand-written SQL) |
 | ADR-15 | Deterministic LLM provider (`LLM_PROVIDER=fake`) exists for tests/CI only | Required by the testing mandate; production config rejects it unless explicitly set and the UI shows a visible banner |
-| ADR-16 | Express route heuristic (D-09/T-4) implemented only if time permits after core | Marked *Could* in `04` |
+| ADR-16 | Express route heuristic (D-09/T-4) implemented only if time permits after core | Marked *Could* in `04`. Implemented as a *pattern* edge (`X.get('/p', handler)` where `X` traces to `express`) and labelled "Verified (pattern)" |
+| ADR-17 | Model output via Anthropic **structured outputs** (`output_config.format` JSON schema) + Zod validation, not a forced tool call | Forced `tool_choice` is rejected by the newest models; structured outputs give schema-valid JSON on all tiers. Validation still treats output as untrusted |
+| ADR-18 | Sections are emitted after the single validated response, not token-streamed | Simpler and verifiable (every ref is checked before display); relations stream first so the screen is never empty. Trade-off: first explanation text arrives after generation completes |
+| ADR-19 | `POST` + SSE consumed with `fetch` streaming | `EventSource` cannot POST; keeps cookies and CSRF checks uniform |
+| ADR-20 | Same-origin check on unsafe methods (`Sec-Fetch-Site` / `Origin` vs host or `APP_BASE_URL`) on top of SameSite=Lax | Defence in depth for a cookie-authenticated, no-login API |
+| ADR-21 | Anonymous GitHub mode (codeload only) when no token | Keeps the product usable without credentials; documented limits (no SHA, no size pre-check) |
 
 ## 6. Risks
 | Risk | Mitigation |

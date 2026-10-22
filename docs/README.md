@@ -38,3 +38,8 @@ flowchart TD
 | Backend / analysis engineer | 00 → 07 → 08 → 10 |
 | AI engineer | 00 → 09 → 11 → 08 |
 | Design / QA | 00 → 06 → 05 → 11 |
+
+## Implementation documents (V1, as built)
+The documents above are the design. What was actually built, how it differs, and how to run and operate it is in
+[`implementation/`](implementation/): `00_Execution_Plan`, `01_Implementation_Status`, `02_Deployment_and_Operations`,
+`03_Security_and_Privacy`, `04_Testing_and_Measurements`. The repository root `README.md` has the quick start.
