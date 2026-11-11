@@ -10,7 +10,7 @@ export default tseslint.config(
       'coverage/**',
       'playwright-report/**',
       'test-results/**',
-      'docs/**',
+      'project-docs/**',
       '**/tests/fixtures/**',
       '**/.build/**',
     ],
