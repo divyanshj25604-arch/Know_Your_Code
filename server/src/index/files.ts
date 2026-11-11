@@ -110,7 +110,7 @@ export async function getFile(db: Db, snapshotId: string, path: string): Promise
 }
 
 export async function getFileContent(
-  db: Db,
+  db: Queryable,
   snapshotId: string,
   path: string,
 ): Promise<{ id: string; content: string; lineCount: number } | null> {

@@ -89,6 +89,8 @@ export interface RelationItem {
   provenance: Exclude<Provenance, 'explained'>;
   /** How the relation arises: a direct call, a use as a value (callback, JSX, export), or a route registration. */
   via: 'call' | 'reference' | 'route';
+  /** Id of the graph edge that proves this relation (evidence for verified claims). */
+  edgeId?: string;
 }
 
 export interface UnresolvedItem {

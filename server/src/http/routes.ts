@@ -24,7 +24,9 @@ import {
   type SnapshotRow,
 } from '../index/snapshots';
 import { buildTree, getFile, listFilePaths } from '../index/files';
-import { getRelations, getSymbolSnapshot } from '../index/symbols';
+import { getSymbolSnapshot } from '../index/symbols';
+import { PgGraphStore } from '../index/graphStore';
+import { relationsOf } from '@kyc/core';
 import { resolveSelection } from '../index/resolve';
 import type { Services } from '../services';
 import { MAX_SHARE_TTL_HOURS } from '../auth/shareTokens';
@@ -128,7 +130,7 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
     const snapshotId = await getSymbolSnapshot(db, id);
     if (!snapshotId) throw new KycError('NOT_FOUND');
     assertUsable((await authorizeSnapshotRead(svc, req, reply, snapshotId)).snap);
-    const rel = await getRelations(db, snapshotId, id);
+    const rel = await relationsOf(new PgGraphStore(db, snapshotId), id);
     if (!rel) throw new KycError('NOT_FOUND');
     return rel;
   });

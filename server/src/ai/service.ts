@@ -17,7 +17,9 @@ import { KycError } from '@kyc/core';
 import { buildContextPack, type ContextPack } from '../retrieval/context';
 import { getFileContent } from '../index/files';
 import { resolveSelection, type ResolvedSelection } from '../index/resolve';
-import { getRelations, topSymbols } from '../index/symbols';
+import { topSymbols } from '../index/symbols';
+import { PgGraphStore } from '../index/graphStore';
+import { relationsOf } from '@kyc/core';
 import { assertBudget, costUsd, logLlmCall, modelFor, type Tier } from './cost';
 import type { LlmClient, LlmCall, LlmTask } from './llm';
 import {
@@ -196,7 +198,7 @@ export class AiService {
   async prepareExplain(req: ExplainRequest): Promise<PreparedExplain> {
     const resolved = await resolveSelection(this.db, req.snapshotId, req.selection);
     const relations = resolved.symbol
-      ? await getRelations(this.db, req.snapshotId, resolved.symbol.id)
+      ? await relationsOf(new PgGraphStore(this.db, req.snapshotId), resolved.symbol.id)
       : null;
     return { ...req, resolved, relations };
   }

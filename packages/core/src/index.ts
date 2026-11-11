@@ -42,3 +42,16 @@ export {
   type SkipReason,
 } from './files/filter';
 export { REDACTED, isSecretFile, redact } from './privacy/redact';
+
+export type { GraphEdgeRow, GraphStore, GraphSymbol } from './retrieval/graph';
+export { importItems, relationsOf } from './retrieval/relations';
+export { Pack, estimateTokens, isAllowed, mergeRanges, type AllowedRanges } from './retrieval/pack';
+export {
+  planContext,
+  type ContextPack,
+  type EvidenceEdge,
+  type FlowStep,
+  type PlanRequest,
+  type RetrievalIntent,
+} from './retrieval/planner';
+export { MemoryGraphStore, byOutbound, cmpId } from './retrieval/memoryStore';
