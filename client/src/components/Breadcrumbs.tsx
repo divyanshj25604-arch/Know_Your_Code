@@ -6,12 +6,15 @@ export function Breadcrumbs({
   onJump,
   onBack,
   onForward,
+  canForward,
 }: {
   entries: HistoryEntry[];
   index: number;
   onJump: (i: number) => void;
   onBack: () => void;
   onForward: () => void;
+  /** Branching trails: Forward is available whenever the current stop has a visited child. */
+  canForward?: boolean;
 }) {
   return (
     <nav className="crumbs" aria-label="Your trail">
@@ -29,7 +32,7 @@ export function Breadcrumbs({
         type="button"
         className="icon-btn"
         onClick={onForward}
-        disabled={index >= entries.length - 1}
+        disabled={canForward === undefined ? index >= entries.length - 1 : !canForward}
         aria-label="Forward (Alt+Right)"
         title="Forward (Alt+→)"
       >

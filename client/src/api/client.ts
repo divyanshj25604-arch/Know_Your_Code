@@ -4,6 +4,11 @@ import {
   type AuthSessionResponse,
   type ClaimResponse,
   type ErrorCode,
+  type ExplanationBody,
+  type LearnerPositionInput,
+  type LearnerPositionView,
+  type LearnerPositionsResponse,
+  type LearnerTrack,
   type MeResponse,
   type ShareTokenResponse,
   type TokenTransport,
@@ -93,11 +98,14 @@ async function request<T>(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
+  keepalive = false,
 ): Promise<T> {
   let res: Response;
   try {
     res = await fetch(t.url(path), {
       method,
+      // keepalive lets a request finish while the page unloads (saving the learner's place on reload).
+      ...(keepalive ? { keepalive: true } : {}),
       credentials: t.credentials,
       headers: t.headers(body !== undefined ? { 'content-type': 'application/json' } : {}),
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -199,7 +207,23 @@ export interface CheckQuestion {
   options: string[];
 }
 
+/** A stored explanation and its thread, as returned by GET /explanations/:id. */
+export interface StoredExplanation {
+  id: string;
+  /** null once retention has deleted the code; the history itself is kept. */
+  snapshotId: string | null;
+  selection: Selection;
+  kind: string;
+  depth: string;
+  parentId: string | null;
+  body: ExplanationBody;
+  refsStripped: number;
+  messages: ThreadMessage[];
+}
+
 export interface CheckResult {
+  /** Free-text answers are graded: correct, partly or incorrect. */
+  verdict?: 'correct' | 'partly' | 'incorrect';
   correct: boolean;
   feedback: string;
   refs: { path: string; line: number }[];
@@ -227,8 +251,8 @@ export function createApiClient(
   let shareToken: string | null = null;
   const t = makeTransport(valid, () => shareToken);
   const transport: TokenTransport = valid.auth.kind === 'cookie' ? 'cookie' : 'bearer';
-  const call = <T>(method: string, path: string, body?: unknown, signal?: AbortSignal) =>
-    request<T>(t, method, path, body, signal);
+  const call = <T>(method: string, path: string, body?: unknown, signal?: AbortSignal, keepalive = false) =>
+    request<T>(t, method, path, body, signal, keepalive);
 
   return {
     config: valid,
@@ -262,11 +286,24 @@ export function createApiClient(
     }) => call<void>('POST', '/api/v1/feedback', b),
     event: (name: string, props: Record<string, string | number | boolean> = {}) =>
       call<void>('POST', '/api/v1/events', { events: [{ name, props }] }).catch(() => undefined),
-    explanation: (id: string) =>
-      call<{ id: string; body: Record<string, unknown>; messages: ThreadMessage[] }>(
-        'GET',
-        `/api/v1/explanations/${id}`,
+    explanation: (id: string) => call<StoredExplanation>('GET', `/api/v1/explanations/${id}`),
+    positions: (repositoryId: string) =>
+      call<LearnerPositionsResponse>('GET', `/api/v1/repositories/${repositoryId}/positions`),
+    savePosition: (repositoryId: string, track: LearnerTrack, p: LearnerPositionInput, keepalive = false) =>
+      call<LearnerPositionView>(
+        'PUT',
+        `/api/v1/repositories/${repositoryId}/positions/${track}`,
+        p,
+        undefined,
+        keepalive,
       ),
+    explainFlow: (
+      b: { snapshotId: string; symbolId: string; hops?: number },
+      onEvent: (m: SseMessage) => void,
+      signal?: AbortSignal,
+    ) => streamSse(t, '/api/v1/flows/explain', b, onEvent, signal),
+    answerCheckText: (checkId: string, text: string) =>
+      call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { text }),
     createCheck: (explanationId: string) =>
       call<CheckQuestion>('POST', `/api/v1/explanations/${explanationId}/checks`, {}),
     answerCheck: (checkId: string, answerIndex: number) =>

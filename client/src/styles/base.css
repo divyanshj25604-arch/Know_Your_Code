@@ -945,3 +945,19 @@ details.sec > summary {
     gap: 0;
   }
 }
+
+/* Mode navigation and mode pages (P2.2). Layout only; colours come from the existing tokens. */
+.mode-nav {
+  display: flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+}
+.mode-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--s4);
+}
+.validate-item {
+  border-bottom: 1px solid var(--border);
+  padding: var(--s3) 0;
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { SnapshotView } from '@kyc/contracts';
 import { api, ApiError } from '../api/client';
 import { Breadcrumbs } from '../components/Breadcrumbs';
@@ -11,11 +11,15 @@ import { RepoMenu } from '../components/RepoMenu';
 import { AiStatusBanner, Header, useHealth } from '../components/Shell';
 import { ErrorState, Skeleton } from '../components/ui';
 import { useDepth } from '../hooks/usePrefs';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useWorkspace, type Workspace as WorkspaceState } from '../hooks/useWorkspace';
+import { MODES, ModeNav, type Mode } from '../components/modes/ModeNav';
+import { ProjectMode } from '../components/modes/ProjectMode';
+import { ValidateMode } from '../components/modes/ValidateMode';
 import type { Selection } from '@kyc/contracts';
 
 export function Workspace() {
-  const { id = '' } = useParams();
+  const { id = '', mode: rawMode } = useParams();
+  const location = useLocation();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const health = useHealth();
@@ -44,6 +48,10 @@ export function Workspace() {
         ),
       );
   }, [id]);
+
+  // /r/:id (and unknown modes) open Explore, keeping deep-link and share parameters.
+  if (!MODES.includes(rawMode as Mode)) return <Navigate to={`/r/${id}/explore${location.search}`} replace />;
+  const mode = rawMode as Mode;
 
   if (snapError)
     return (
@@ -85,6 +93,7 @@ export function Workspace() {
     <Loaded
       key={id}
       snap={snap}
+      mode={mode}
       depth={depth}
       setDepth={setDepth}
       health={health}
@@ -111,24 +120,22 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Loaded({
-  snap,
+/** One workspace track's screen: trail, file tree, code viewer and explanation panel (Learn and Explore modes). */
+function WorkspaceView({
+  ws,
   depth,
   setDepth,
-  health,
-  initial,
   onUrl,
-  onDeleted,
+  actions,
 }: {
-  snap: SnapshotView;
+  ws: WorkspaceState;
   depth: import('@kyc/contracts').Depth;
   setDepth: (d: import('@kyc/contracts').Depth) => void;
-  health: ReturnType<typeof useHealth>;
-  initial: { path: string | null; line: number | null };
-  onUrl: (path: string | null, line: number | null) => void;
-  onDeleted: () => void;
+  /** Keep the URL shareable (Explore only). */
+  onUrl?: (path: string | null, line: number | null) => void;
+  /** Mode-specific controls shown in the trail bar. */
+  actions?: React.ReactNode;
 }) {
-  const ws = useWorkspace(snap.id, initial);
   const viewer = useRef<ViewerHandle>(null);
   const [anchor, setAnchor] = useState<{ sel: Selection & { text?: string }; at: Anchor } | null>(null);
   const [treeOpen, setTreeOpen] = useState(false);
@@ -137,7 +144,7 @@ function Loaded({
 
   // Keep the URL shareable (FR-NAV-03).
   useEffect(() => {
-    onUrl(entry?.path ?? null, entry?.line ?? null);
+    onUrl?.(entry?.path ?? null, entry?.line ?? null);
   }, [entry?.path, entry?.line]);
 
   const explainCurrent = useCallback(() => {
@@ -188,19 +195,7 @@ function Loaded({
   const fileData = ws.file.data;
 
   return (
-    <div className="page workspace-page">
-      <Header>
-        <span className="repo-name" title={`${snap.repository.owner}/${snap.repository.name}`}>
-          {snap.repository.owner}/{snap.repository.name}
-        </span>
-        {snap.status === 'ready_partial' && (
-          <span className="tag tag-warn" title="Some files couldn't be analysed. See the overview.">
-            partial
-          </span>
-        )}
-        <RepoMenu repositoryId={snap.repositoryId} onDeleted={onDeleted} />
-      </Header>
-      <AiStatusBanner health={health} />
+    <>
       <div className="subbar">
         <button
           type="button"
@@ -225,7 +220,9 @@ function Loaded({
           onJump={ws.goTo}
           onBack={ws.back}
           onForward={ws.forward}
+          canForward={ws.canForward}
         />
+        {actions}
         <button
           type="button"
           className="btn btn-small sheet-toggle"
@@ -334,6 +331,132 @@ function Loaded({
           <ExplanationPanel ws={ws} depth={depth} onDepth={setDepth} onOpenRef={openRef} />
         </div>
       </div>
+    </>
+  );
+}
+
+/** Whether this track's place is being saved to the server (so a reload or another device resumes it). */
+function SaveStatus({ ws }: { ws: WorkspaceState }) {
+  if (ws.persistence === 'error')
+    return (
+      <span className="muted small" role="status">
+        Couldn't save your place
+      </span>
+    );
+  if (ws.persistence === 'saving')
+    return (
+      <span className="muted small" role="status">
+        Saving your place…
+      </span>
+    );
+  if (ws.persistence === 'saved' && ws.entry)
+    return (
+      <span className="muted small" role="status">
+        Place saved
+      </span>
+    );
+  return null;
+}
+
+/**
+ * The repository workspace (P2.2): one header and mode navigation over shared state. Learn and Explore are separate
+ * tracks, each restored from the server, so exploring never moves the learning position and "Return to learning"
+ * goes back to the exact stop. Project and Validate read the same state.
+ */
+function Loaded({
+  snap,
+  mode,
+  depth,
+  setDepth,
+  health,
+  initial,
+  onUrl,
+  onDeleted,
+}: {
+  snap: SnapshotView;
+  mode: Mode;
+  depth: import('@kyc/contracts').Depth;
+  setDepth: (d: import('@kyc/contracts').Depth) => void;
+  health: ReturnType<typeof useHealth>;
+  initial: { path: string | null; line: number | null };
+  onUrl: (path: string | null, line: number | null) => void;
+  onDeleted: () => void;
+}) {
+  const nav = useNavigate();
+  const share = new URLSearchParams(useLocation().search).get('share');
+  const go = (m: Mode) => nav(`/r/${snap.id}/${m}${share ? `?share=${encodeURIComponent(share)}` : ''}`);
+  const target = { id: snap.id, repositoryId: snap.repositoryId, commitSha: snap.commitSha };
+  const learning = useWorkspace(target, 'learning');
+  const exploration = useWorkspace(target, 'exploration', initial);
+
+  return (
+    <div className="page workspace-page">
+      <Header>
+        <span className="repo-name" title={`${snap.repository.owner}/${snap.repository.name}`}>
+          {snap.repository.owner}/{snap.repository.name}
+        </span>
+        {snap.status === 'ready_partial' && (
+          <span className="tag tag-warn" title="Some files couldn't be analysed. See the overview.">
+            partial
+          </span>
+        )}
+        <ModeNav snapshotId={snap.id} />
+        <RepoMenu repositoryId={snap.repositoryId} onDeleted={onDeleted} />
+      </Header>
+      <AiStatusBanner health={health} />
+      {mode === 'project' && (
+        <ProjectMode
+          learning={learning}
+          overview={learning.overview}
+          onLearnAt={(p, l) => {
+            learning.openFile(p, l);
+            go('learn');
+          }}
+          onContinue={() => go('learn')}
+        />
+      )}
+      {mode === 'learn' && (
+        <WorkspaceView
+          ws={learning}
+          depth={depth}
+          setDepth={setDepth}
+          actions={
+            <>
+              <button type="button" className="btn btn-small" onClick={() => go('explore')}>
+                Explore freely
+              </button>
+              <SaveStatus ws={learning} />
+            </>
+          }
+        />
+      )}
+      {mode === 'explore' && (
+        <WorkspaceView
+          ws={exploration}
+          depth={depth}
+          setDepth={setDepth}
+          onUrl={onUrl}
+          actions={
+            <>
+              {learning.entry && (
+                <button type="button" className="btn btn-small btn-primary" onClick={() => go('learn')}>
+                  Return to learning
+                </button>
+              )}
+              <SaveStatus ws={exploration} />
+            </>
+          }
+        />
+      )}
+      {mode === 'validate' && (
+        <ValidateMode
+          tracks={[learning, exploration]}
+          onOpen={(p, l) => {
+            exploration.navigate(p, l, `${p.split('/').pop()}:${l}`);
+            go('explore');
+          }}
+        />
+      )}
     </div>
   );
 }

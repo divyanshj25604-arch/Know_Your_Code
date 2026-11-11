@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { Depth, FileView, Overview, Relations, Selection, TreeNode } from '@kyc/contracts';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { Depth, FileView, LearnerTrack, Overview, Relations, Selection, TreeNode } from '@kyc/contracts';
 import { api, ApiError, type SseMessage } from '../api/client';
 import {
   newExpl,
@@ -13,31 +13,16 @@ import {
   type StreamError,
   type ThreadItem,
 } from '../lib/expl';
-
-interface HistState {
-  entries: HistoryEntry[];
-  index: number;
-}
-
-type HistAction =
-  | { type: 'push'; entry: HistoryEntry }
-  | { type: 'go'; index: number }
-  | { type: 'patch'; id: string; fn: (e: HistoryEntry) => HistoryEntry };
-
-function reducer(s: HistState, a: HistAction): HistState {
-  switch (a.type) {
-    case 'push': {
-      // Pushing after going back drops the forward trail, like a browser.
-      const entries = [...s.entries.slice(0, s.index + 1), a.entry];
-      return { entries, index: entries.length - 1 };
-    }
-    case 'go':
-      // -1 means "the project overview" (no file open).
-      return { ...s, index: Math.max(-1, Math.min(s.entries.length - 1, a.index)) };
-    case 'patch':
-      return { ...s, entries: s.entries.map((e) => (e.id === a.id ? a.fn(e) : e)) };
-  }
-}
+import { explStateOf, loadExplanation } from '../state/explanations';
+import { queries } from '../state/queryCache';
+import {
+  canForward,
+  emptyTrail,
+  restoreTrail,
+  serialiseTrail,
+  trailPath,
+  trailReducer,
+} from '../state/trail';
 
 let counter = 0;
 const uid = (p: string) => `${p}-${++counter}-${Math.random().toString(36).slice(2, 7)}`;
@@ -47,7 +32,17 @@ const asStreamError = (e: unknown): StreamError =>
     ? { code: e.code, message: e.message, retryable: e.retryable }
     : { code: 'SERVICE_UNAVAILABLE', message: 'Something went wrong.', retryable: true };
 
+/** Where this workspace's trail is saved: on the server, or nowhere (e.g. someone else's shared snapshot). */
+export type Persistence = 'loading' | 'saved' | 'saving' | 'unavailable' | 'error';
+
 export interface Workspace {
+  track: LearnerTrack;
+  /** True once the saved position has been restored (or there was none). */
+  restored: boolean;
+  persistence: Persistence;
+  canForward: boolean;
+  /** Every stop in this track that has a saved explanation, most recent first (for Validate mode). */
+  explanations: { nodeId: string; explanationId: string; label: string; path: string; line: number }[];
   loading: boolean;
   loadError: ApiError | null;
   tree: TreeNode | null;
@@ -67,6 +62,7 @@ export interface Workspace {
   openConcept: (id: string, label: string) => Promise<void>;
   startCheck: () => Promise<void>;
   answerCheck: (i: number) => Promise<void>;
+  answerCheckText: (text: string) => Promise<void>;
   closeCheck: () => void;
   goTo: (i: number) => void;
   back: () => void;
@@ -74,53 +70,60 @@ export interface Workspace {
   clearSelectionError: () => void;
 }
 
+/**
+ * One workspace track (P2.1): a branching trail of stops (file positions, each optionally with an explanation),
+ * persisted to the server per repository and track so a reload, or another device, resumes at the exact same stop.
+ * Snapshot data comes from the shared query cache; explanations are restored from the server by id.
+ */
 export function useWorkspace(
-  snapshotId: string,
-  initial: { path: string | null; line: number | null },
+  snap: { id: string; repositoryId: string; commitSha: string | null },
+  track: LearnerTrack,
+  initial: { path: string | null; line: number | null } = { path: null, line: null },
 ): Workspace {
-  const [hist, dispatch] = useReducer(reducer, { entries: [], index: -1 });
+  const snapshotId = snap.id;
+  const [trail, dispatch] = useReducer(trailReducer, undefined, emptyTrail);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [file, setFile] = useState<Workspace['file']>({ status: 'idle', data: null, error: null });
-  const cache = useRef(new Map<string, FileView>());
+  const [restored, setRestored] = useState(false);
+  const [persistence, setPersistence] = useState<Persistence>('loading');
   const stream = useRef<AbortController | null>(null);
   const activeEntry = useRef<string | null>(null);
-  const histRef = useRef(hist);
-  histRef.current = hist;
+  const trailRef = useRef(trail);
+  trailRef.current = trail;
+  /** The serialised trail the server holds (null until known). */
+  const lastPersisted = useRef<string | null>(null);
 
-  const entry = hist.index >= 0 ? (hist.entries[hist.index] ?? null) : null;
-  const current = () => histRef.current.entries[histRef.current.index] ?? null;
+  const path = useMemo(() => trailPath(trail), [trail]);
+  const entries = useMemo(() => path.map((n) => n.entry), [path]);
+  const entry = trail.currentId ? (trail.nodes[trail.currentId]?.entry ?? null) : null;
+  const current = () => {
+    const t = trailRef.current;
+    return t.currentId ? (t.nodes[t.currentId]?.entry ?? null) : null;
+  };
+  const push = (e: HistoryEntry) => dispatch({ type: 'push', entry: e });
 
   const patchExpl = useCallback((id: string, fn: (e: ExplState) => ExplState) => {
     dispatch({ type: 'patch', id, fn: (en) => (en.expl ? { ...en, expl: fn(en.expl) } : en) });
   }, []);
 
-  // Initial load.
+  // Snapshot data, shared through the query cache by every mode and track.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([api.tree(snapshotId), api.overview(snapshotId)])
+    Promise.all([
+      queries.get(`tree:${snapshotId}`, () => api.tree(snapshotId)),
+      queries.get(`overview:${snapshotId}`, () => api.overview(snapshotId)),
+    ])
       .then(([t, o]) => {
         if (cancelled) return;
         setTree(t.root);
         setOverview(o);
         setLoadError(null);
         setLoading(false);
-        if (initial.path) {
-          dispatch({
-            type: 'push',
-            entry: {
-              id: uid('h'),
-              path: initial.path,
-              line: initial.line ?? 1,
-              label: initial.path.split('/').pop() ?? initial.path,
-              expl: null,
-            },
-          });
-        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -135,24 +138,166 @@ export function useWorkspace(
     };
   }, [snapshotId]);
 
-  // Load the file for the current entry.
-  const path = entry?.path ?? null;
+  // Restore the saved trail for this repository and track, then apply a deep link (?path=) on top of it.
   useEffect(() => {
-    if (!path) {
+    let cancelled = false;
+    queries
+      .get(`positions:${snap.repositoryId}`, () => api.positions(snap.repositoryId))
+      .then((saved) => {
+        if (cancelled) return;
+        const t = restoreTrail(saved[track]?.state ?? null);
+        if (t) dispatch({ type: 'replace', trail: t });
+        // The baseline is what the server returned, so a deep-link stop added below is saved.
+        lastPersisted.current = JSON.stringify(serialiseTrail(t ?? emptyTrail()));
+        setPersistence('saved');
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        // 404: not this user's repository (a shared snapshot): nothing to restore or save.
+        setPersistence(e instanceof ApiError && e.status === 404 ? 'unavailable' : 'error');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        const here = trailRef.current.currentId
+          ? trailRef.current.nodes[trailRef.current.currentId]
+          : undefined;
+        if (
+          initial.path &&
+          !(here && here.entry.path === initial.path && here.entry.line === (initial.line ?? 1))
+        ) {
+          push({
+            id: uid('h'),
+            path: initial.path,
+            line: initial.line ?? 1,
+            label: initial.path.split('/').pop() ?? initial.path,
+            expl: null,
+          });
+        }
+        setRestored(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [snap.repositoryId, track]);
+
+  // Save the trail whenever its structure changes: debounced, flushed with keepalive if the page is hidden or
+  // reloaded first, and reported honestly ("saving" until the server has it). Explanation text is not saved: it is
+  // restored by id.
+  const saved = useMemo(() => JSON.stringify(serialiseTrail(trail)), [trail]);
+  const savable = restored && persistence !== 'unavailable' && persistence !== 'loading';
+  const save = useCallback(
+    (json: string, keepalive: boolean) => {
+      const t = trailRef.current;
+      const here = t.currentId ? t.nodes[t.currentId] : undefined;
+      return api
+        .savePosition(
+          snap.repositoryId,
+          track,
+          {
+            path: here?.entry.path ?? null,
+            symbolKey: null,
+            startLine: here?.entry.line ?? null,
+            endLine: here?.entry.line ?? null,
+            commitSha: snap.commitSha && /^[0-9a-f]{40}$/.test(snap.commitSha) ? snap.commitSha : null,
+            state: JSON.parse(json) as Record<string, unknown>,
+          },
+          keepalive,
+        )
+        .then((v) => {
+          lastPersisted.current = json;
+          const all = queries.peek<Awaited<ReturnType<typeof api.positions>>>(
+            `positions:${snap.repositoryId}`,
+          );
+          if (all) queries.set(`positions:${snap.repositoryId}`, { ...all, [track]: v });
+          if (json === JSON.stringify(serialiseTrail(trailRef.current))) setPersistence('saved');
+        })
+        .catch((e: unknown) =>
+          setPersistence(e instanceof ApiError && e.status === 404 ? 'unavailable' : 'error'),
+        );
+    },
+    [snap.repositoryId, snap.commitSha, track],
+  );
+  useEffect(() => {
+    if (!savable) return;
+    if (lastPersisted.current === null) lastPersisted.current = saved; // the server state was unreadable
+    if (saved === lastPersisted.current) return;
+    setPersistence('saving');
+    const timer = setTimeout(() => void save(saved, false), 400);
+    const flush = () => {
+      if (saved !== lastPersisted.current) void save(saved, true);
+    };
+    window.addEventListener('pagehide', flush);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [saved, savable]);
+
+  // A restored stop shows its explanation again: fetch it by id.
+  const currentNode = trail.currentId ? trail.nodes[trail.currentId] : undefined;
+  useEffect(() => {
+    const n = currentNode;
+    if (!n || !n.explanationId || n.entry.expl) return;
+    const id = n.id;
+    const label = n.entry.label;
+    loadExplanation(n.explanationId)
+      .then((stored) =>
+        dispatch({ type: 'patch', id, fn: (e) => ({ ...e, expl: explStateOf(stored, label) }) }),
+      )
+      .catch((e: unknown) =>
+        dispatch({
+          type: 'patch',
+          id,
+          fn: (en) => ({
+            ...en,
+            expl: {
+              ...newExpl(
+                { path: en.path, startLine: en.line, startCol: 0, endLine: en.line, endCol: 0 },
+                label,
+              ),
+              status: 'error',
+              error: asStreamError(e),
+            },
+          }),
+        }),
+      );
+  }, [currentNode?.id, currentNode?.explanationId]);
+
+  // A relation stop shows the callee's relations (also after a restore).
+  useEffect(() => {
+    const n = currentNode;
+    const sid = n?.entry.relationSymbolId;
+    if (!n || !sid || n.entry.relations) return;
+    queries
+      .get(`relations:${sid}`, () => api.relations(sid))
+      .then((r) => dispatch({ type: 'patch', id: n.id, fn: (e) => ({ ...e, relations: r }) }))
+      .catch(() =>
+        // The symbol is from an earlier analysis run (or gone): keep the stop, without the relations panel.
+        dispatch({
+          type: 'patch',
+          id: n.id,
+          fn: (e) => ({ ...e, relationSymbolId: undefined, relations: null }),
+        }),
+      );
+  }, [currentNode?.id]);
+
+  // Load the file for the current entry.
+  const filePath = entry?.path ?? null;
+  useEffect(() => {
+    if (!filePath) {
       setFile({ status: 'idle', data: null, error: null });
       return;
     }
-    const hit = cache.current.get(path);
-    if (hit) {
-      setFile({ status: 'ready', data: hit, error: null });
-      return;
-    }
     let cancelled = false;
-    setFile({ status: 'loading', data: null, error: null });
-    api
-      .file(snapshotId, path)
+    const key = `file:${snapshotId}:${filePath}`;
+    const hit = queries.peek<FileView>(key);
+    setFile(
+      hit ? { status: 'ready', data: hit, error: null } : { status: 'loading', data: null, error: null },
+    );
+    if (hit) return;
+    queries
+      .get(key, () => api.file(snapshotId, filePath))
       .then((f) => {
-        cache.current.set(path, f);
         if (!cancelled) setFile({ status: 'ready', data: f, error: null });
       })
       .catch((e) => {
@@ -169,44 +314,34 @@ export function useWorkspace(
     return () => {
       cancelled = true;
     };
-  }, [snapshotId, path]);
+  }, [snapshotId, filePath]);
 
   const openFile = useCallback((p: string, line = 1) => {
-    dispatch({
-      type: 'push',
-      entry: { id: uid('h'), path: p, line, label: p.split('/').pop() ?? p, expl: null },
-    });
+    push({ id: uid('h'), path: p, line, label: p.split('/').pop() ?? p, expl: null });
   }, []);
 
   const navigate = useCallback((p: string, line: number, label: string, symbolId?: string) => {
     const id = uid('h');
-    dispatch({
-      type: 'push',
-      entry: {
-        id,
-        path: p,
-        line,
-        label,
-        ...(symbolId ? { relationSymbolId: symbolId } : {}),
-        relations: null,
-        expl: null,
-      },
+    push({
+      id,
+      path: p,
+      line,
+      label,
+      ...(symbolId ? { relationSymbolId: symbolId } : {}),
+      relations: null,
+      expl: null,
     });
-    void api.event('relation_clicked');
-    if (symbolId) {
-      api
-        .relations(symbolId)
-        .then((r) => dispatch({ type: 'patch', id, fn: (e) => ({ ...e, relations: r }) }))
-        .catch(() => undefined); // navigation still works without the relations panel
-    }
+    void api.event('relation_clicked'); // relations load in the current-stop effect above
   }, []);
 
   const handleEvent = useCallback(
     (id: string, m: SseMessage) => {
       const d = m.data;
       if (m.event === 'relations') patchExpl(id, (e) => ({ ...e, relations: d as unknown as Relations }));
-      else if (m.event === 'meta') patchExpl(id, (e) => ({ ...e, meta: d as unknown as Meta }));
-      else if (m.event === 'section')
+      else if (m.event === 'meta') {
+        patchExpl(id, (e) => ({ ...e, meta: d as unknown as Meta }));
+        dispatch({ type: 'link', id, explanationId: String(d.explanationId) });
+      } else if (m.event === 'section')
         patchExpl(id, (e) => ({ ...e, sections: [...e.sections, d as unknown as Section] }));
       else if (m.event === 'done') {
         patchExpl(id, (e) => ({ ...e, status: 'done', done: d as unknown as DoneInfo }));
@@ -271,7 +406,7 @@ export function useWorkspace(
       const id = reuse ? cur.id : uid('h');
       const expl = newExpl(sel, label);
       if (reuse) dispatch({ type: 'patch', id, fn: (e) => ({ ...e, label, line: sel.startLine, expl }) });
-      else dispatch({ type: 'push', entry: { id, path: sel.path, line: sel.startLine, label, expl } });
+      else push({ id, path: sel.path, line: sel.startLine, label, expl });
       void api.event('explanation_requested', { depth });
       await runStream(id, (signal) =>
         api.explain({ snapshotId, selection: sel, depth }, (m) => handleEvent(id, m), signal),
@@ -504,22 +639,60 @@ export function useWorkspace(
     [patchExpl],
   );
 
+  const answerCheckText = useCallback(
+    async (text: string) => {
+      const cur = current();
+      const q = cur?.expl?.check?.question;
+      if (!cur || !q) return;
+      try {
+        const result = await api.answerCheckText(q.checkId, text);
+        patchExpl(cur.id, (e) => ({ ...e, check: e.check ? { ...e.check, result } : e.check }));
+      } catch (e) {
+        patchExpl(cur.id, (x) => ({
+          ...x,
+          check: x.check
+            ? { ...x.check, error: e instanceof ApiError ? e.message : 'Could not grade that.' }
+            : x.check,
+        }));
+      }
+    },
+    [patchExpl],
+  );
+
   const closeCheck = useCallback(() => {
     const cur = current();
     if (cur?.expl) patchExpl(cur.id, (e) => ({ ...e, check: null }));
   }, [patchExpl]);
 
   // Navigating away does not cancel a running stream: it keeps filling its own stop, which Back restores.
-  const goTo = useCallback((i: number) => dispatch({ type: 'go', index: i }), []);
+  // `i` indexes the breadcrumb (root .. current); -1 is the project overview.
+  const goTo = useCallback(
+    (i: number) => dispatch({ type: 'go', id: i < 0 ? null : (trailPath(trailRef.current)[i]?.id ?? null) }),
+    [],
+  );
 
   return {
+    track,
+    restored,
+    persistence,
+    canForward: canForward(trail),
+    explanations: Object.values(trail.nodes)
+      .filter((n) => n.explanationId)
+      .reverse()
+      .map((n) => ({
+        nodeId: n.id,
+        explanationId: n.explanationId!,
+        label: n.entry.label,
+        path: n.entry.path,
+        line: n.entry.line,
+      })),
     loading,
     loadError,
     tree,
     overview,
     entry,
-    entries: hist.entries,
-    index: hist.index,
+    entries,
+    index: entries.length - 1,
     file,
     selectionError,
     openFile,
@@ -532,10 +705,11 @@ export function useWorkspace(
     openConcept,
     startCheck,
     answerCheck,
+    answerCheckText,
     closeCheck,
     goTo,
-    back: () => goTo(hist.index - 1),
-    forward: () => goTo(hist.index + 1),
+    back: () => dispatch({ type: 'back' }),
+    forward: () => dispatch({ type: 'forward' }),
     clearSelectionError: () => setSelectionError(null),
   };
 }

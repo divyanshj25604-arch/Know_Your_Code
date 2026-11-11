@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Link, Route, Routes } from 'react-router-dom';
 import { Header } from './components/Shell';
 import { Landing } from './pages/Landing';
 import { Processing } from './pages/Processing';
@@ -21,9 +21,18 @@ function NotFound() {
   );
 }
 
+/**
+ * Desktop-safe routing (P2.2): a desktop shell serves the app from a custom origin or the file system, where path
+ * routes break on reload, so it uses hash routes. The web build keeps clean paths. VITE_ROUTER=hash forces hash routes.
+ */
+const useHashRoutes =
+  import.meta.env.VITE_ROUTER === 'hash' ||
+  (typeof window !== 'undefined' && !/^https?:$/.test(window.location.protocol));
+const Router = useHashRoutes ? HashRouter : BrowserRouter;
+
 export function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <a className="skip-link" href="#main">
         Skip to content
       </a>
@@ -32,7 +41,7 @@ export function App() {
         <Route path="/start" element={<Start />} />
         <Route path="/r/:id/processing" element={<Processing />} />
         <Route
-          path="/r/:id"
+          path="/r/:id/:mode?"
           element={
             <Suspense
               fallback={
@@ -47,6 +56,6 @@ export function App() {
         />
         <Route path="*" element={<NotFound />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
