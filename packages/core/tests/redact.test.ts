@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSecretFile, redact, REDACTED } from '../src/privacy/redact';
+import { isSecretFile, redact, REDACTED } from '@kyc/core';
 
 describe('redact', () => {
   it('redacts well-known token formats', () => {

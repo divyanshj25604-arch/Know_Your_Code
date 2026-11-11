@@ -1,6 +1,6 @@
 import { ts } from 'ts-morph';
 import type { Selection, SelectionKind } from '@kyc/contracts';
-import { AppError } from '../http/errors';
+import { KycError } from '../errors';
 
 export interface Classified {
   kind: SelectionKind;
@@ -21,7 +21,7 @@ export function lineStarts(content: string): number[] {
 
 export function toOffset(starts: number[], content: string, line: number, col: number): number {
   const s = starts[line - 1];
-  if (s === undefined) throw new AppError('INVALID_SELECTION');
+  if (s === undefined) throw new KycError('INVALID_SELECTION');
   const end = line < starts.length ? starts[line]! - 1 : content.length;
   return Math.min(s + col, end);
 }
@@ -82,10 +82,10 @@ export function classifySelection(
   importedNames: Set<string>,
 ): Classified {
   const starts = lineStarts(content);
-  if (sel.startLine > starts.length || sel.endLine > starts.length) throw new AppError('INVALID_SELECTION');
+  if (sel.startLine > starts.length || sel.endLine > starts.length) throw new KycError('INVALID_SELECTION');
   let s = toOffset(starts, content, sel.startLine, sel.startCol);
   let e = toOffset(starts, content, sel.endLine, sel.endCol);
-  if (e < s) throw new AppError('INVALID_SELECTION');
+  if (e < s) throw new KycError('INVALID_SELECTION');
   const sf = ts.createSourceFile(path, content, ts.ScriptTarget.ES2022, true, scriptKind(path));
 
   // Trim whitespace from both ends of the selection.
@@ -111,7 +111,7 @@ export function classifySelection(
 
   if (collapsed) {
     const tok = findToken(probeStart);
-    if (!tok || !ts.isIdentifier(tok)) throw new AppError('INVALID_SELECTION');
+    if (!tok || !ts.isIdentifier(tok)) throw new KycError('INVALID_SELECTION');
     s = tok.getStart(sf);
     e = tok.getEnd();
   }
@@ -137,14 +137,14 @@ export function classifySelection(
     if (tok && ts.isIdentifier(tok)) {
       return identifierResult(tok.text, importedNames, text);
     }
-    if (/^\s*(\/\/|\/\*|\*)/.test(text) || text.length === 0) throw new AppError('INVALID_SELECTION');
+    if (/^\s*(\/\/|\/\*|\*)/.test(text) || text.length === 0) throw new KycError('INVALID_SELECTION');
     // Inside a string/template/etc.: treat the enclosing statement as a block.
     return { kind: 'block', spansMultiple: false, text, note: 'Explaining the surrounding code.' };
   }
 
-  if (covered.every((n) => ts.isJSDoc(n))) throw new AppError('INVALID_SELECTION');
+  if (covered.every((n) => ts.isJSDoc(n))) throw new KycError('INVALID_SELECTION');
   const code = covered.filter((n) => !ts.isJSDoc(n));
-  if (code.length === 0) throw new AppError('INVALID_SELECTION');
+  if (code.length === 0) throw new KycError('INVALID_SELECTION');
 
   if (code.length === 1) {
     const n = code[0]!;

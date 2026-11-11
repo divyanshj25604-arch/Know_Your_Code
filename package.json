@@ -20,7 +20,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run test -w server && npm run test -w client",
+    "test": "npm run test -w @kyc/core && npm run test -w server && npm run test -w client",
     "test:e2e": "npm run build -w client && playwright test --project=deterministic",
     "test:live": "npm run build && LIVE=1 playwright test --project=live",
     "db:migrate": "npm run db:migrate -w server",

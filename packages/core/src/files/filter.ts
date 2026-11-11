@@ -124,7 +124,8 @@ export function classifyPath(path: string): PathVerdict {
   return { keep: true };
 }
 
-export function looksBinary(buf: Buffer): boolean {
+/** True when the first 8 kB contain a NUL byte. Accepts any byte array (a Node Buffer is a Uint8Array). */
+export function looksBinary(buf: Uint8Array): boolean {
   const n = Math.min(buf.length, 8000);
   for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
   return false;

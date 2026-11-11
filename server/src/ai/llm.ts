@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Config } from '../config/env';
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 import { FakeLlm } from './fake';
 import { GroqLlm } from './groq';
 
@@ -60,26 +60,26 @@ export class AnthropicLlm implements LlmClient {
   }
 
   /** Map a provider/SDK failure to a user-safe error and say whether one more attempt could help. */
-  private mapError(e: unknown): { err: AppError; retry: boolean } {
-    if (e instanceof AppError) return { err: e, retry: false };
+  private mapError(e: unknown): { err: KycError; retry: boolean } {
+    if (e instanceof KycError) return { err: e, retry: false };
     if (e instanceof Anthropic.APIConnectionTimeoutError)
-      return { err: new AppError('AI_TIMEOUT'), retry: true };
-    if (e instanceof Anthropic.RateLimitError) return { err: new AppError('AI_BUSY'), retry: true };
+      return { err: new KycError('AI_TIMEOUT'), retry: true };
+    if (e instanceof Anthropic.RateLimitError) return { err: new KycError('AI_BUSY'), retry: true };
     if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
       this.log.warn({ status: (e as { status?: number }).status }, 'AI provider rejected our credentials');
       return {
-        err: new AppError('AI_NOT_CONFIGURED', 'The AI provider rejected this server’s credentials.'),
+        err: new KycError('AI_NOT_CONFIGURED', 'The AI provider rejected this server’s credentials.'),
         retry: false,
       };
     }
-    if (e instanceof Anthropic.APIConnectionError) return { err: new AppError('AI_ERROR'), retry: true };
+    if (e instanceof Anthropic.APIConnectionError) return { err: new KycError('AI_ERROR'), retry: true };
     if (e instanceof Anthropic.APIError) {
       this.log.warn({ status: e.status, type: (e as { type?: string }).type }, 'AI provider error');
       // 5xx (including 529 overloaded) may clear up; other 4xx are our bug or a policy decision and will not.
-      return { err: new AppError('AI_ERROR'), retry: e.status !== undefined && e.status >= 500 };
+      return { err: new KycError('AI_ERROR'), retry: e.status !== undefined && e.status >= 500 };
     }
-    if ((e as Error)?.name === 'AbortError') return { err: new AppError('AI_TIMEOUT'), retry: false };
-    return { err: new AppError('AI_ERROR'), retry: false };
+    if ((e as Error)?.name === 'AbortError') return { err: new KycError('AI_TIMEOUT'), retry: false };
+    return { err: new KycError('AI_ERROR'), retry: false };
   }
 
   async complete(call: LlmCall): Promise<LlmOutput> {

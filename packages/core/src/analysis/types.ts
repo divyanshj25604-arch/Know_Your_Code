@@ -1,7 +1,10 @@
 export type SymbolKind = 'function' | 'method' | 'class' | 'variable' | 'parameter' | 'import' | 'export';
 
 export interface SymbolRow {
-  /** Stable within one analysis run: `${path}#${start}-${end}`. Replaced by a UUID on persistence. */
+  /**
+   * Stable symbol key (see symbolKey.ts): the same for unchanged code in every run and every snapshot. Persisted as
+   * `symbols.symbol_key`; the database row id is a separate per-run UUID.
+   */
   key: string;
   path: string;
   name: string;

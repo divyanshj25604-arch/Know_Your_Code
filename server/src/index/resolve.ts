@@ -1,7 +1,6 @@
 import type { ResolveResponse, Selection } from '@kyc/contracts';
 import type { Db } from '../db/pool';
-import { AppError } from '../http/errors';
-import { classifySelection } from '../analysis/resolve';
+import { KycError, classifySelection } from '@kyc/core';
 import { getFileContent } from './files';
 import { enclosingSymbol, symbolsInFile } from './symbols';
 
@@ -17,8 +16,8 @@ export async function resolveSelection(
   sel: Selection,
 ): Promise<ResolvedSelection> {
   const file = await getFileContent(db, snapshotId, sel.path);
-  if (!file) throw new AppError('FILE_NOT_FOUND');
-  if (sel.endLine > file.lineCount && file.lineCount > 0) throw new AppError('INVALID_SELECTION');
+  if (!file) throw new KycError('FILE_NOT_FOUND');
+  if (sel.endLine > file.lineCount && file.lineCount > 0) throw new KycError('INVALID_SELECTION');
 
   const analysable =
     (await db.query<{ analysable: boolean }>('SELECT analysable FROM files WHERE id=$1', [file.id])).rows[0]
@@ -42,6 +41,7 @@ export async function resolveSelection(
     symbol: symbol
       ? {
           id: symbol.id,
+          key: symbol.key ?? null,
           name: symbol.name,
           kind: symbol.kind,
           path: symbol.path,

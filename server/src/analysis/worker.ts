@@ -1,6 +1,5 @@
 import { parentPort } from 'node:worker_threads';
-import { analyse, type AnalyseOptions } from './analyse';
-import type { AnalysisInput, AnalysisResult } from './types';
+import { analyse, type AnalyseOptions, type AnalysisInput, type AnalysisResult } from '@kyc/core';
 
 /**
  * Worker-thread entry: run the (CPU-heavy, synchronous-in-parts) analysis off the API's event loop.

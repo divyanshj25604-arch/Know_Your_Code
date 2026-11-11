@@ -1,0 +1,21 @@
+{
+  "name": "@kyc/core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runtime-independent Know Your Code logic: analysis, classification, overview, file filters, redaction, stable symbol keys.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kyc/contracts": "*",
+    "ts-morph": "^28.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.5"
+  }
+}

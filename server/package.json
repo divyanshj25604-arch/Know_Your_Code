@@ -17,6 +17,7 @@
     "@fastify/rate-limit": "^11.2.1",
     "@fastify/static": "^10.1.7",
     "@kyc/contracts": "*",
+    "@kyc/core": "*",
     "fastify": "^5.12.7",
     "pg": "^8.23.1",
     "tar-stream": "^3.2.2",

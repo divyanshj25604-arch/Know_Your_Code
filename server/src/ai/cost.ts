@@ -1,6 +1,6 @@
 import type { Config } from '../config/env';
 import type { Db } from '../db/pool';
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 
 export type Tier = 'fast' | 'strong';
 
@@ -31,7 +31,7 @@ export async function spentTodayUsd(db: Db): Promise<number> {
 
 /** Hard daily cap (docs/09 §14). Navigation keeps working; only new model calls are refused. */
 export async function assertBudget(db: Db, config: Config): Promise<void> {
-  if ((await spentTodayUsd(db)) >= config.DAILY_SPEND_CAP_USD) throw new AppError('BUDGET_EXCEEDED');
+  if ((await spentTodayUsd(db)) >= config.DAILY_SPEND_CAP_USD) throw new KycError('BUDGET_EXCEEDED');
 }
 
 export interface LlmCallLog {

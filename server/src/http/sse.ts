@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ERROR_CODES } from '@kyc/contracts';
-import { AppError } from './errors';
+import { KycError } from '@kyc/core';
 
 export interface SseStream {
   emit(event: string, data: unknown): void;
@@ -40,7 +40,7 @@ export function openSse(req: FastifyRequest, reply: FastifyReply): SseStream {
     signal: controller.signal,
     emit: write,
     emitError(e: unknown) {
-      const app = e instanceof AppError ? e : null;
+      const app = e instanceof KycError ? e : null;
       const code = app?.code ?? 'SERVICE_UNAVAILABLE';
       write('error', {
         code,

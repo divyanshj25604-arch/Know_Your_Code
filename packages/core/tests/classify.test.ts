@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifySelection, lineStarts, toOffset } from '../src/analysis/resolve';
+import { classifySelection, lineStarts, toOffset } from '@kyc/core';
 
 const JS = `const express = require('express');
 const { login } = require('./auth');

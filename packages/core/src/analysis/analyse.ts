@@ -1,6 +1,7 @@
-import path from 'node:path';
 import { Node, SyntaxKind, ts, type Project, type SourceFile } from 'ts-morph';
+import * as posix from '../util/posixPath';
 import { buildProject, readPathAliases, toRelPath, type PathAliases } from './project';
+import { applyStableKeys } from './symbolKey';
 import type {
   AnalysisInput,
   AnalysisResult,
@@ -23,7 +24,8 @@ export interface AnalyseOptions {
   checkAbort?: () => void;
 }
 
-const yieldLoop = () => new Promise<void>((r) => setImmediate(r));
+/** Yield to the host event loop between files (keeps an inline run from starving other work). */
+const yieldLoop = () => new Promise<void>((r) => setTimeout(r, 0));
 
 const HTTP_VERBS = new Set(['get', 'post', 'put', 'patch', 'delete', 'use', 'all', 'options', 'head']);
 const MAX_SIGNATURE = 200;
@@ -87,6 +89,7 @@ function addSymbol(
   const p = relPath(rn.getSourceFile());
   const r = range(rn);
   const row: SymbolRow = {
+    // Unique within this run only; replaced by the stable key once every symbol is known (applyStableKeys).
     key: `${p}#${rn.getStart()}-${rn.getEnd()}-${kind}-${name}`,
     path: p,
     name,
@@ -541,8 +544,8 @@ function resolveModule(
     if (rel) return { rel, viaKnown: false };
   }
   if (spec.startsWith('.')) {
-    const dir = path.posix.dirname(toRelPath(containing) ?? '');
-    const joined = path.posix.normalize(path.posix.join(dir, spec));
+    const dir = posix.dirname(toRelPath(containing) ?? '');
+    const joined = posix.join(dir, spec);
     for (const cand of [joined, `${joined}.json`, `${joined}/index.json`]) {
       if (ctx.known.has(cand)) return { rel: cand, viaKnown: true };
     }
@@ -962,6 +965,8 @@ export async function analyse(files: AnalysisInput[], opts: AnalyseOptions = {})
       failedFiles.push({ path: relPath(sf), reason: 'analysis_failed' });
     }
   }
+  // Replace run-local keys with stable keys before any edge refers to a symbol, so edges use them too.
+  applyStableKeys(ctx.symbols);
   const t2 = performance.now();
 
   const fnNames = new Set(

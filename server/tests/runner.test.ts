@@ -1,28 +1,14 @@
-import { mkdirSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { analyse } from '../src/analysis/analyse';
-import { readPathAliases } from '../src/analysis/project';
+import { analyse, readPathAliases } from '@kyc/core';
 import { runAnalysis } from '../src/analysis/runner';
+import { buildTestWorker } from './build-worker';
 import { analysable, loadFixture } from './fixture-loader';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const workerPath = path.join(here, '.build', 'worker.mjs');
+let workerPath = '';
 
 beforeAll(async () => {
-  mkdirSync(path.dirname(workerPath), { recursive: true });
-  // Compile the real worker entry (node_modules stay external so they resolve from this directory tree).
-  await build({
-    entryPoints: [path.join(here, '..', 'src', 'analysis', 'worker.ts')],
-    outfile: workerPath,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    packages: 'external',
-    logLevel: 'silent',
-  });
+  // Compile the real worker entry (third-party packages stay external so they resolve from this directory tree).
+  workerPath = await buildTestWorker();
 });
 
 const input = () => {

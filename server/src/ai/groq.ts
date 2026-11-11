@@ -1,4 +1,4 @@
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 import type { LlmCall, LlmClient, LlmOutput } from './llm';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -18,26 +18,26 @@ export class GroqLlm implements LlmClient {
     this.fetchFn = opts.fetch ?? globalThis.fetch;
   }
 
-  /** Map Groq HTTP / network failure to user-safe AppError and indicate retryability. */
-  private mapError(status?: number): { err: AppError; retry: boolean } {
+  /** Map Groq HTTP / network failure to user-safe KycError and indicate retryability. */
+  private mapError(status?: number): { err: KycError; retry: boolean } {
     if (status === 401 || status === 403) {
       this.log.warn({ status }, 'AI provider rejected our credentials');
       return {
-        err: new AppError('AI_NOT_CONFIGURED', 'The AI provider rejected this server’s credentials.'),
+        err: new KycError('AI_NOT_CONFIGURED', 'The AI provider rejected this server’s credentials.'),
         retry: false,
       };
     }
     if (status === 429) {
-      return { err: new AppError('AI_BUSY'), retry: true };
+      return { err: new KycError('AI_BUSY'), retry: true };
     }
     if (status === 408 || status === 504) {
-      return { err: new AppError('AI_TIMEOUT'), retry: true };
+      return { err: new KycError('AI_TIMEOUT'), retry: true };
     }
     if (status !== undefined && status >= 500) {
       this.log.warn({ status }, 'AI provider error');
-      return { err: new AppError('AI_ERROR'), retry: true };
+      return { err: new KycError('AI_ERROR'), retry: true };
     }
-    return { err: new AppError('AI_ERROR'), retry: false };
+    return { err: new KycError('AI_ERROR'), retry: false };
   }
 
   async complete(call: LlmCall): Promise<LlmOutput> {
@@ -58,7 +58,7 @@ export class GroqLlm implements LlmClient {
       if (call.signal) {
         if (call.signal.aborted) {
           if (timer) clearTimeout(timer);
-          throw new AppError('AI_TIMEOUT');
+          throw new KycError('AI_TIMEOUT');
         }
         call.signal.addEventListener('abort', onCallerAbort, { once: true });
       }
@@ -111,7 +111,10 @@ export class GroqLlm implements LlmClient {
             json = JSON.parse(text);
           } catch {
             // Strip potential markdown code fences if the model wrapped it
-            const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+            const cleaned = text
+              .replace(/^```(?:json)?\s*/i, '')
+              .replace(/\s*```$/, '')
+              .trim();
             try {
               json = JSON.parse(cleaned);
             } catch {
@@ -133,11 +136,11 @@ export class GroqLlm implements LlmClient {
         if (timer) clearTimeout(timer);
         if (call.signal) call.signal.removeEventListener('abort', onCallerAbort);
 
-        if (raw instanceof AppError) throw raw;
+        if (raw instanceof KycError) throw raw;
 
         const isAbort = (raw as Error)?.name === 'AbortError' || controller.signal.aborted;
         if (isAbort) {
-          throw new AppError('AI_TIMEOUT');
+          throw new KycError('AI_TIMEOUT');
         }
 
         const { err, retry } = this.mapError(undefined);

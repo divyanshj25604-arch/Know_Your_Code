@@ -1,4 +1,4 @@
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 
 export interface RepoRef {
   owner: string;
@@ -36,7 +36,7 @@ function hasWhitespaceOrControl(s: string): boolean {
  * any network request is made, which is the primary SSRF control.
  */
 export function parseRepoUrl(input: string, refOverride?: string): RepoRef {
-  const bad = () => new AppError('INVALID_URL');
+  const bad = () => new KycError('INVALID_URL');
   const raw = input.trim();
   if (raw.length === 0 || raw.length > 300 || hasWhitespaceOrControl(raw)) throw bad();
 

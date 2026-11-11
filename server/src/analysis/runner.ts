@@ -1,10 +1,8 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import { AppError } from '../http/errors';
-import { analyse, type AnalyseOptions } from './analyse';
+import { KycError, analyse, type AnalyseOptions, type AnalysisInput, type AnalysisResult } from '@kyc/core';
 import type { WorkerMessage, WorkerRequest } from './worker';
-import type { AnalysisInput, AnalysisResult } from './types';
 
 export interface RunOptions extends AnalyseOptions {
   mode?: 'auto' | 'worker' | 'inline';
@@ -16,11 +14,9 @@ export interface RunOptions extends AnalyseOptions {
   maxMemoryMb?: number;
 }
 
+/** The configured worker (ANALYSIS_WORKER_PATH, passed in by the caller) or the one next to the running bundle. */
 export function resolveWorkerPath(explicit?: string): string | null {
-  const p =
-    explicit ??
-    process.env.ANALYSIS_WORKER_PATH ??
-    fileURLToPath(new URL('./analysis/worker.js', import.meta.url));
+  const p = explicit ?? fileURLToPath(new URL('./analysis/worker.js', import.meta.url));
   return existsSync(p) ? p : null;
 }
 
@@ -32,7 +28,7 @@ export async function runAnalysis(files: AnalysisInput[], opts: RunOptions = {})
   const mode = opts.mode ?? 'auto';
   const path = mode === 'inline' ? null : resolveWorkerPath(opts.workerPath);
   if (!path) {
-    if (mode === 'worker') throw new AppError('INDEX_FAILED', 'Analysis worker is not available.');
+    if (mode === 'worker') throw new KycError('INDEX_FAILED', 'Analysis worker is not available.');
     return analyse(files, opts);
   }
   return new Promise<AnalysisResult>((resolve, reject) => {
@@ -46,18 +42,18 @@ export async function runAnalysis(files: AnalysisInput[], opts: RunOptions = {})
       fn();
     };
     const timer = setTimeout(
-      () => finish(() => reject(new AppError('INDEX_FAILED', 'Processing took too long and was stopped.'))),
+      () => finish(() => reject(new KycError('INDEX_FAILED', 'Processing took too long and was stopped.'))),
       opts.timeoutMs ?? 120_000,
     );
     worker.on('message', (m: WorkerMessage) => {
       if (m.type === 'progress') opts.onProgress?.(m.done, m.total);
       else if (m.type === 'done') finish(() => resolve(m.result));
-      else finish(() => reject(new AppError('INDEX_FAILED', 'Analysis failed.')));
+      else finish(() => reject(new KycError('INDEX_FAILED', 'Analysis failed.')));
     });
     worker.on('error', (e: Error & { code?: string }) =>
       finish(() =>
         reject(
-          new AppError(
+          new KycError(
             'INDEX_FAILED',
             e.code === 'ERR_WORKER_OUT_OF_MEMORY'
               ? 'This repository is too large to analyse.'
@@ -68,7 +64,7 @@ export async function runAnalysis(files: AnalysisInput[], opts: RunOptions = {})
     );
     worker.on('exit', (code) =>
       finish(() =>
-        reject(new AppError('INDEX_FAILED', code === 0 ? 'Analysis ended early.' : 'Analysis failed.')),
+        reject(new KycError('INDEX_FAILED', code === 0 ? 'Analysis ended early.' : 'Analysis failed.')),
       ),
     );
     const req: WorkerRequest = {

@@ -1,4 +1,4 @@
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 import type { LlmCall, LlmClient, LlmOutput } from './llm';
 
 /**
@@ -17,9 +17,9 @@ export class FakeLlm implements LlmClient {
     this.calls.push(call);
     const started = performance.now();
     const u = call.user;
-    if (u.includes('FAKE_TIMEOUT')) throw new AppError('AI_TIMEOUT');
-    if (u.includes('FAKE_BUSY')) throw new AppError('AI_BUSY');
-    if (u.includes('FAKE_ERROR')) throw new AppError('AI_ERROR');
+    if (u.includes('FAKE_TIMEOUT')) throw new KycError('AI_TIMEOUT');
+    if (u.includes('FAKE_BUSY')) throw new KycError('AI_BUSY');
+    if (u.includes('FAKE_ERROR')) throw new KycError('AI_ERROR');
     const refused = u.includes('FAKE_REFUSE');
     let json: unknown;
     if (u.includes('FAKE_MALFORMED')) json = { what: 42 };

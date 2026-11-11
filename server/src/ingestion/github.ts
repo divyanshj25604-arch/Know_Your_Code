@@ -1,6 +1,6 @@
 import { Readable, Transform } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 import type { Config } from '../config/env';
 import type { RepoRef } from './url';
 import { isSafeRef } from './url';
@@ -66,8 +66,8 @@ export class GitHubClient {
     let current = url;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       if (!this.allowedHosts.has(current.host))
-        throw new AppError('INDEX_FAILED', 'The download was redirected somewhere unexpected.');
-      if (current.protocol !== 'https:' && current.protocol !== 'http:') throw new AppError('INDEX_FAILED');
+        throw new KycError('INDEX_FAILED', 'The download was redirected somewhere unexpected.');
+      if (current.protocol !== 'https:' && current.protocol !== 'http:') throw new KycError('INDEX_FAILED');
       let res: Response;
       try {
         res = await this.fetchImpl(current, {
@@ -77,14 +77,14 @@ export class GitHubClient {
         });
       } catch (e) {
         if ((e as Error).name === 'AbortError' || (e as Error).name === 'TimeoutError') {
-          throw new AppError('SERVICE_UNAVAILABLE', 'GitHub took too long to respond.');
+          throw new KycError('SERVICE_UNAVAILABLE', 'GitHub took too long to respond.');
         }
-        throw new AppError('SERVICE_UNAVAILABLE', "We couldn't reach GitHub.");
+        throw new KycError('SERVICE_UNAVAILABLE', "We couldn't reach GitHub.");
       }
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location');
         await res.body?.cancel().catch(() => undefined);
-        if (!loc) throw new AppError('INDEX_FAILED');
+        if (!loc) throw new KycError('INDEX_FAILED');
         current = new URL(loc, current);
         // Never forward credentials across hosts.
         init = { ...init, headers: { Accept: '*/*', 'User-Agent': 'know-your-code' } };
@@ -92,21 +92,21 @@ export class GitHubClient {
       }
       return res;
     }
-    throw new AppError('INDEX_FAILED', 'Too many redirects while downloading.');
+    throw new KycError('INDEX_FAILED', 'Too many redirects while downloading.');
   }
 
-  private mapStatus(res: Response): AppError {
-    if (res.status === 404) return new AppError('REPO_NOT_FOUND_OR_PRIVATE');
+  private mapStatus(res: Response): KycError {
+    if (res.status === 404) return new KycError('REPO_NOT_FOUND_OR_PRIVATE');
     if (res.status === 403 || res.status === 429) {
       const remaining = res.headers.get('x-ratelimit-remaining');
       if (res.status === 429 || remaining === '0' || res.headers.has('retry-after')) {
-        return new AppError('GITHUB_RATE_LIMITED');
+        return new KycError('GITHUB_RATE_LIMITED');
       }
-      return new AppError('REPO_NOT_FOUND_OR_PRIVATE');
+      return new KycError('REPO_NOT_FOUND_OR_PRIVATE');
     }
     if (res.status === 401)
-      return new AppError('SERVICE_UNAVAILABLE', 'GitHub authentication failed on our side.');
-    return new AppError('SERVICE_UNAVAILABLE', "GitHub isn't responding as expected.");
+      return new KycError('SERVICE_UNAVAILABLE', 'GitHub authentication failed on our side.');
+    return new KycError('SERVICE_UNAVAILABLE', "GitHub isn't responding as expected.");
   }
 
   /** Repo metadata. Only available with a token; anonymous API quota (60/h) is too small to rely on. */
@@ -119,14 +119,14 @@ export class GitHubClient {
     const res = await this.request(url, { signal });
     if (!res.ok) throw this.mapStatus(res);
     const j = (await res.json()) as { private?: boolean; default_branch?: string; size?: number };
-    if (j.private) throw new AppError('REPO_NOT_FOUND_OR_PRIVATE');
+    if (j.private) throw new KycError('REPO_NOT_FOUND_OR_PRIVATE');
     const meta: RepoMeta = {
       private: false,
       defaultBranch: String(j.default_branch ?? 'HEAD'),
       sizeKb: Number(j.size ?? 0),
     };
     if (meta.sizeKb > this.config.MAX_REPORTED_REPO_KB) {
-      throw new AppError(
+      throw new KycError(
         'REPO_TOO_LARGE',
         `This repository is about ${Math.round(meta.sizeKb / 1024)} MB; the limit is ${Math.round(this.config.MAX_REPORTED_REPO_KB / 1024)} MB.`,
         {
@@ -149,13 +149,13 @@ export class GitHubClient {
       headers: { ...this.headers(), Accept: 'application/vnd.github.sha' },
     });
     if (res.status === 404 || res.status === 422)
-      throw new AppError(
+      throw new KycError(
         'REPO_NOT_FOUND_OR_PRIVATE',
         'That branch, tag, or commit does not exist in this repository.',
       );
     if (!res.ok) throw this.mapStatus(res);
     const sha = (await res.text()).trim();
-    if (!SHA_RE.test(sha)) throw new AppError('SERVICE_UNAVAILABLE', "GitHub isn't responding as expected.");
+    if (!SHA_RE.test(sha)) throw new KycError('SERVICE_UNAVAILABLE', "GitHub isn't responding as expected.");
     return sha.toLowerCase();
   }
 
@@ -184,12 +184,12 @@ export class GitHubClient {
     if (this.hasToken) {
       const meta = await this.getMeta(repo, controller.signal);
       const ref = repo.ref ?? meta?.defaultBranch ?? 'HEAD';
-      if (!isSafeRef(ref) && ref !== 'HEAD') throw new AppError('INVALID_URL');
+      if (!isSafeRef(ref) && ref !== 'HEAD') throw new KycError('INVALID_URL');
       sha = await this.resolveSha(repo, ref, controller.signal);
       url = new URL(`/repos/${owner}/${name}/tarball/${sha}`, this.config.GITHUB_API_BASE);
     } else {
       const ref = repo.ref ?? 'HEAD';
-      if (ref !== 'HEAD' && !isSafeRef(ref)) throw new AppError('INVALID_URL');
+      if (ref !== 'HEAD' && !isSafeRef(ref)) throw new KycError('INVALID_URL');
       if (SHA_RE.test(ref)) sha = ref.toLowerCase();
       url = new URL(
         `/${owner}/${name}/tar.gz/${ref.split('/').map(encodeURIComponent).join('/')}`,
@@ -205,7 +205,7 @@ export class GitHubClient {
     const declared = Number(res.headers.get('content-length') ?? 0);
     if (declared > this.config.MAX_TARBALL_BYTES) {
       await res.body.cancel().catch(() => undefined);
-      throw new AppError(
+      throw new KycError(
         'REPO_TOO_LARGE',
         `The download is ${Math.round(declared / 1048576)} MB; the limit is ${Math.round(this.config.MAX_TARBALL_BYTES / 1048576)} MB.`,
       );
@@ -217,7 +217,7 @@ export class GitHubClient {
       new Transform({
         transform(chunk: Buffer, _e, cb) {
           seen += chunk.length;
-          if (seen > max) return cb(new AppError('REPO_TOO_LARGE', 'The download exceeded the size limit.'));
+          if (seen > max) return cb(new KycError('REPO_TOO_LARGE', 'The download exceeded the size limit.'));
           cb(null, chunk);
         },
       }),

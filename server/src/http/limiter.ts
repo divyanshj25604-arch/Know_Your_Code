@@ -1,4 +1,4 @@
-import { AppError } from './errors';
+import { KycError } from '@kyc/core';
 
 /** Small in-memory sliding-window limiter. Single-instance by design (docs/07 ADR-06). */
 export class RateLimiter {
@@ -13,7 +13,7 @@ export class RateLimiter {
     if (recent.length >= max) {
       this.hits.set(k, recent);
       const retryAfterSec = Math.ceil((windowMs - (now - recent[0]!)) / 1000);
-      throw new AppError(
+      throw new KycError(
         'RATE_LIMITED',
         `You're going fast! Try again in about ${Math.max(1, Math.ceil(retryAfterSec / 60))} min.`,
         { retryAfterSec },

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyse, readPathAliases } from '../src/analysis/analyse';
-import type { AnalysisResult, EdgeRow, SymbolRow } from '../src/analysis/types';
+import { analyse, readPathAliases, type AnalysisResult, type EdgeRow, type SymbolRow } from '@kyc/core';
 import { analysable, loadFixture } from './fixture-loader';
 
 async function run(name: string) {

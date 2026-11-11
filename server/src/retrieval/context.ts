@@ -3,7 +3,7 @@ import type { Db } from '../db/pool';
 import { getFileContent } from '../index/files';
 import { getFileImports, getRelations, getSymbol } from '../index/symbols';
 import type { ResolvedSelection } from '../index/resolve';
-import { redact } from '../privacy/redact';
+import { redact } from '@kyc/core';
 import type { AllowedRanges } from '../ai/verify';
 
 export const estimateTokens = (s: string): number => Math.ceil(s.length / 3.5);

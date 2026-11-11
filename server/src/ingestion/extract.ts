@@ -1,9 +1,9 @@
 import { Transform, type Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
-import { AppError } from '../http/errors';
-import { redact } from '../privacy/redact';
 import {
+  KycError,
+  redact,
   ANALYSABLE_EXT,
   classifyPath,
   extOf,
@@ -12,7 +12,7 @@ import {
   languageOf,
   looksBinary,
   type SkipReason,
-} from './filter';
+} from '@kyc/core';
 
 export interface ExtractLimits {
   maxAnalysableFiles: number;
@@ -64,7 +64,7 @@ class CapStream extends Transform {
   override _transform(chunk: Buffer, _enc: BufferEncoding, cb: (e?: Error | null, d?: Buffer) => void) {
     this.seen += chunk.length;
     if (this.seen > this.cap)
-      return cb(new AppError('REPO_TOO_LARGE', 'The repository is larger than the size limit.'));
+      return cb(new KycError('REPO_TOO_LARGE', 'The repository is larger than the size limit.'));
     cb(null, chunk);
   }
 }
@@ -84,7 +84,7 @@ export async function extractTarball(source: Readable, limits: ExtractLimits): P
 
   const done = new Promise<void>((resolve, reject) => {
     const fail = (e: unknown) =>
-      reject(e instanceof AppError ? e : new AppError('INDEX_FAILED', 'The archive could not be read.'));
+      reject(e instanceof KycError ? e : new KycError('INDEX_FAILED', 'The archive could not be read.'));
     source.on('error', fail);
     gunzip.on('error', fail);
     cap.on('error', fail);
@@ -95,7 +95,7 @@ export async function extractTarball(source: Readable, limits: ExtractLimits): P
       totalEntries++;
       if (totalEntries > limits.maxTotalEntries) {
         stream.resume();
-        return fail(new AppError('REPO_TOO_LARGE', 'The repository has too many files.'));
+        return fail(new KycError('REPO_TOO_LARGE', 'The repository has too many files.'));
       }
       const skip = (path: string, reason: SkipReason) => {
         skipped.push({ path, reason });
@@ -156,7 +156,7 @@ export async function extractTarball(source: Readable, limits: ExtractLimits): P
           analysable++;
           if (analysable > limits.maxAnalysableFiles) {
             return fail(
-              new AppError(
+              new KycError(
                 'REPO_TOO_LARGE',
                 `This repository has more than ${limits.maxAnalysableFiles.toLocaleString()} analysable files.`,
                 {
