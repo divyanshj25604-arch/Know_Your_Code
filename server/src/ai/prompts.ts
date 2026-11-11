@@ -1,8 +1,10 @@
 import type { Depth, SelectionKind } from '@kyc/contracts';
 import { CONCEPT_VOCAB } from '@kyc/contracts';
 
-/** Bump when any prompt or schema changes; it is part of every cache key (docs/09 §5, §13). */
-export const PROMPT_VERSION = 'p1.0';
+/** Version of SYSTEM_RULES, shared by every capability; each capability adds its own version (capabilities/*). */
+export const SYSTEM_RULES_VERSION = 'p1.0';
+/** Recorded in the cost ledger. */
+export const PROMPT_VERSION = SYSTEM_RULES_VERSION;
 
 export const SYSTEM_RULES = `You are Know Your Code, a patient teacher explaining a student's own repository.
 
@@ -60,6 +62,14 @@ export function conceptTask(conceptId: string, label: string): string {
 
 export function checkTask(): string {
   return `TASK: write ONE optional understanding check about the selected code. It must be answerable from the shown code alone, with no trick questions. Choose type predict, trace or why. Give exactly 4 options with exactly one correct answer (correctIndex 0-3), the lines that justify it in answerRefs, and a short explanation that cites them.`;
+}
+
+export function flowTask(depth: Depth): string {
+  return `TASK: explain how execution flows from the starting function through the calls listed under FLOW, hop by hop.\nWrite one "steps" entry per FLOW line, in order, copying its edge id into "edgeId" and setting "provenance" to "verified" (the call is proven by static analysis). Only edge ids that appear under FLOW may be used; for anything else (a step you infer, a call you cannot see) use edgeId null and provenance "explained". Cite the lines that show each step. Start with a short "summary" of what the whole flow achieves. Put hops the code cannot show in "uncertainty".\n${DEPTH_TEXT[depth]}`;
+}
+
+export function gradeTask(): string {
+  return `TASK: grade the student's free-text answer to the understanding check in task_input against the expected answer and the shown code. Verdict "correct" if it states the essential point, "partly" if it is on the right track but misses or confuses part of it, "incorrect" otherwise. Write short, encouraging feedback (at most 60 words) that explains the right answer and cites the lines that show it. Never shame the student.`;
 }
 
 export const OVERVIEW_TASK = `TASK: write a short project overview (at most 200 words) of what this application does and its main modules, using ONLY the facts, file headers and README excerpt provided. Every module must list real paths from the provided file list. Do not claim behaviour you cannot see.`;

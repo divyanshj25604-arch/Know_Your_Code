@@ -276,6 +276,7 @@ describe('Phase 1 migrations on existing data', () => {
       );
     const order = [...PHASE1].reverse();
     expect(order).toEqual([
+      '009_ai_capabilities.sql',
       '008_snapshot_shares.sql',
       '007_learning_layer.sql',
       '006_analysis_runs_symbol_keys.sql',

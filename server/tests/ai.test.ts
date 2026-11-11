@@ -403,9 +403,16 @@ describe('thread: follow-ups, depth, concepts, checks', () => {
     expect(right.refs.length).toBeGreaterThan(0);
     const wrong = (await h.post(`/api/v1/checks/${created.checkId}/answer`, { answerIndex: 2 })).json();
     expect(wrong.correct).toBe(false);
-    expect((await h.post(`/api/v1/checks/${created.checkId}/answer`, { text: 'free text' })).statusCode).toBe(
-      400,
-    );
+    // Free text is graded by the rubric capability (P2.3), with references checked against the shown code.
+    const graded = await h.post(`/api/v1/checks/${created.checkId}/answer`, { text: 'free text' });
+    expect(graded.statusCode).toBe(200);
+    expect(graded.json()).toMatchObject({
+      correct: false,
+      verdict: 'incorrect',
+      evidence: { capability: 'grade' },
+      refs: [{ path: 'src/controllers/authController.js', line: 4 }],
+    });
+    expect((await h.post(`/api/v1/checks/${created.checkId}/answer`, { text: '  ' })).statusCode).toBe(400);
     expect(
       (await h.post(`/api/v1/checks/${created.checkId}/answer`, { answerIndex: 1 }, 'kyc_owner=x'))
         .statusCode,

@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { CheckAnswerRequestSchema, ExplainRequestSchema, MessageRequestSchema } from '@kyc/contracts';
+import {
+  CheckAnswerRequestSchema,
+  ExplainRequestSchema,
+  FlowExplainRequestSchema,
+  MessageRequestSchema,
+} from '@kyc/contracts';
 import { KycError } from '@kyc/core';
 import { parse } from './validate';
 import { openSse } from './sse';
@@ -43,6 +48,35 @@ export function registerAiRoutes(app: FastifyInstance, svc: Services) {
           { err: { message: (e as Error).message, stack: (e as Error).stack } },
           'explain failed',
         );
+      sse.emitError(e);
+    } finally {
+      sse.end();
+    }
+  });
+
+  /** Explain how execution flows from a symbol through its verified calls (explain_flow capability). */
+  app.post('/api/v1/flows/explain', async (req, reply) => {
+    const body = parse(FlowExplainRequestSchema, req.body);
+    const { userId: ownerId } = await identity.require(req, reply);
+    limiter.check('explain', ownerId, config.RATE_EXPLANATIONS_PER_HOUR, 3600_000);
+    const snap = await getSnapshot(db, body.snapshotId);
+    if (!snap) throw new KycError('NOT_FOUND');
+    if (snap.ownerId !== ownerId)
+      throw new KycError(
+        'NOT_OWNER',
+        'Only the account that imported this repository can request explanations for it.',
+      );
+    assertUsable(snap);
+    const sse = openSse(req, reply);
+    try {
+      await ai.streamFlow(
+        { ownerId, snapshotId: body.snapshotId, symbolId: body.symbolId, hops: body.hops, depth: 'default' },
+        sse.emit,
+        sse.signal,
+      );
+    } catch (e) {
+      if (!(e instanceof KycError))
+        req.log.error({ err: { message: (e as Error).message, stack: (e as Error).stack } }, 'flow failed');
       sse.emitError(e);
     } finally {
       sse.end();
@@ -121,12 +155,13 @@ export function registerAiRoutes(app: FastifyInstance, svc: Services) {
     const body = parse(CheckAnswerRequestSchema, req.body);
     const { userId: ownerId } = await identity.require(req, reply);
     limiter.check('check-answer', ownerId, 60, 3600_000);
-    if (body.answerIndex === undefined) {
-      throw new KycError(
-        'INVALID_REQUEST',
-        'Pick one of the options. Free-text answers are not supported yet.',
-      );
-    }
-    return ai.answerCheck(ownerId, id, body.answerIndex);
+    if (body.answerIndex === undefined && !body.text?.trim())
+      throw new KycError('INVALID_REQUEST', 'Pick one of the options or write your answer.');
+    // An option index is graded exactly; free text goes to the rubric-grading capability.
+    return ai.answerCheck(
+      ownerId,
+      id,
+      body.answerIndex !== undefined ? { index: body.answerIndex } : { text: body.text ?? '' },
+    );
   });
 }

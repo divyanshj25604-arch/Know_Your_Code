@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config/env';
 import { costUsd } from '../src/ai/cost';
 import { ModelOutputError, normaliseCheck, normaliseExplanation } from '../src/ai/schemas';
-import { verifyLines, verifyRefs, type AllowedRanges } from '../src/ai/verify';
+import { verifyLines, verifyRefs, type AllowedRanges } from '@kyc/core';
 
 const ranges: AllowedRanges = new Map([
   ['a.js', [[3, 10]]],

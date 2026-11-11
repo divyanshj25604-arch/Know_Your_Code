@@ -9,6 +9,10 @@ import {
   type ConceptBody,
   type ExplanationBody,
   type FollowUpBody,
+  FlowExplanationBodySchema,
+  GradeBodySchema,
+  type FlowExplanationBody,
+  type GradeBody,
 } from '@kyc/contracts';
 
 /** Anthropic structured-output JSON schemas: all fields required, objects closed. Empty values mean "not applicable". */
@@ -246,3 +250,50 @@ export const OverviewOutputSchema = z.object({
   modules: z.array(z.object({ name: z.string(), paths: z.array(z.string()) })).default([]),
   refs: z.array(RefSchema).default([]),
 });
+
+export const FLOW_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'steps', 'uncertainty'],
+  properties: {
+    summary: textRefs,
+    steps: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['edgeId', 'text', 'refs', 'provenance'],
+        properties: {
+          edgeId: { type: ['string', 'null'] },
+          text: { type: 'string' },
+          refs,
+          provenance: { type: 'string', enum: ['verified', 'explained'] },
+        },
+      },
+    },
+    uncertainty: textList,
+  },
+} as const;
+
+export const GRADE_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['verdict', 'feedback', 'refs'],
+  properties: {
+    verdict: { type: 'string', enum: ['correct', 'partly', 'incorrect'] },
+    feedback: { type: 'string' },
+    refs,
+  },
+} as const;
+
+export function normaliseFlow(raw: unknown): FlowExplanationBody {
+  const r = FlowExplanationBodySchema.safeParse(raw);
+  if (!r.success || !r.data.summary.text.trim()) throw new ModelOutputError('flow schema');
+  return { ...r.data, steps: r.data.steps.filter((s) => s.text.trim()).slice(0, 16) };
+}
+
+export function normaliseGrade(raw: unknown): GradeBody {
+  const r = GradeBodySchema.safeParse(raw);
+  if (!r.success || !r.data.feedback.trim()) throw new ModelOutputError('grade schema');
+  return r.data;
+}

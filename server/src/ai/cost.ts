@@ -50,12 +50,13 @@ export interface LlmCallLog {
   refsStripped?: number;
 }
 
-export async function logLlmCall(db: Db, l: LlmCallLog): Promise<void> {
-  await db
-    .query(
+/** Record one model call in the cost ledger. Returns its id, or null if accounting failed (never fatal). */
+export async function logLlmCall(db: Db, l: LlmCallLog): Promise<number | null> {
+  return db
+    .query<{ id: string }>(
       `INSERT INTO llm_calls (owner_id, snapshot_id, task, model, prompt_version, input_tokens, output_tokens, cost_usd,
                               first_token_ms, total_ms, status, cache_hit, refs_stripped)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [
         l.ownerId,
         l.snapshotId,
@@ -72,5 +73,6 @@ export async function logLlmCall(db: Db, l: LlmCallLog): Promise<void> {
         l.refsStripped ?? 0,
       ],
     )
-    .catch(() => undefined); // accounting must never break the user's request
+    .then((r) => Number(r.rows[0]?.id))
+    .catch(() => null); // accounting must never break the user's request
 }

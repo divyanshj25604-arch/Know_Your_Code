@@ -141,6 +141,42 @@ export class FakeLlm implements LlmClient {
         explanation: `The selection begins at line ${first}.`,
       };
     }
+    if (call.task === 'flow') {
+      const steps = [
+        ...pack.matchAll(/^- hop \d+: (\S+) calls (\S+) at (\S+):(\d+) \[verified; edge (\S+)\]$/gm),
+      ].map((m) => ({
+        edgeId: m[5]!,
+        text: `${m[1]} calls ${m[2]} here.`,
+        refs: [{ path: m[3]!, line: Number(m[4]) }],
+        provenance: 'verified',
+      }));
+      // Test hook: a step that claims a proof the pack never showed (must be downgraded by the verifier).
+      if (pack.includes('KYC_FAKE_BAD_EDGE'))
+        steps.push({
+          edgeId: 'e999999',
+          text: 'It also calls a hidden helper.',
+          refs: [],
+          provenance: 'verified',
+        });
+      return {
+        summary: {
+          text: `Starting in ${path}, the request passes through ${steps.length} verified calls.`,
+          refs: [{ path, line: first }],
+        },
+        steps,
+        uncertainty: [],
+      };
+    }
+    if (call.task === 'grade') {
+      const answer = String(ti.answer ?? '').toLowerCase();
+      const expected = String(ti.expected ?? '').toLowerCase();
+      const hit = expected.length > 0 && answer.includes(expected);
+      return {
+        verdict: hit ? 'correct' : answer.trim().length > 20 ? 'partly' : 'incorrect',
+        feedback: hit ? 'Yes, that is the key point.' : `The key point is: ${ti.expected ?? ''}.`,
+        refs: [{ path, line: first }],
+      };
+    }
     return { summary: 'A small JavaScript project (test provider summary).', modules: [], refs: [] };
   }
 }

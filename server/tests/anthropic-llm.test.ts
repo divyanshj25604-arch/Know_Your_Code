@@ -169,3 +169,81 @@ describe('AnthropicLlm request shape (wire-level; NOT a live API test)', () => {
     expect(Date.now() - started).toBeLessThan(2500);
   });
 });
+
+describe('AnthropicLlm.stream (P2.3, wire-level; no network)', () => {
+  const sse = (events: [string, object][]) =>
+    new Response(events.map(([e, d]) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`).join(''), {
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  const message = {
+    id: 'msg_1',
+    type: 'message',
+    role: 'assistant',
+    model: 'm',
+    content: [],
+    stop_reason: null,
+    stop_sequence: null,
+    usage: { input_tokens: 11, output_tokens: 0 },
+  };
+
+  it('streams text deltas, then returns the same output shape as complete(), with first-token latency', async () => {
+    const { llm, seen } = client(() =>
+      sse([
+        ['message_start', { type: 'message_start', message }],
+        [
+          'content_block_start',
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        ],
+        [
+          'content_block_delta',
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '{"a":' } },
+        ],
+        [
+          'content_block_delta',
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '1}' } },
+        ],
+        ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+        [
+          'message_delta',
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: { output_tokens: 7 },
+          },
+        ],
+        ['message_stop', { type: 'message_stop' }],
+      ]),
+    );
+    const chunks: string[] = [];
+    const out = await llm.stream(call(), (d) => chunks.push(d));
+    expect(chunks).toEqual(['{"a":', '1}']);
+    expect(out).toMatchObject({
+      json: { a: 1 },
+      text: '{"a":1}',
+      outputTokens: 7,
+      stopReason: 'end_turn',
+      refused: false,
+    });
+    expect(out.firstTokenMs).toBeGreaterThanOrEqual(0);
+    expect(seen[0]!.body).toMatchObject({
+      stream: true,
+      model: 'claude-haiku-5-5',
+      output_config: { effort: 'medium' },
+    });
+  });
+
+  it('maps provider errors to user-safe errors without retrying mid-stream', async () => {
+    let calls = 0;
+    const { llm } = client(() => {
+      calls++;
+      return Response.json(
+        { type: 'error', error: { type: 'overloaded_error', message: 'internal detail' } },
+        { status: 529 },
+      );
+    });
+    const err = await llm.stream(call(), () => undefined).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'AI_ERROR' });
+    expect(String((err as Error).message)).not.toContain('internal detail');
+    expect(calls).toBe(1);
+  });
+});

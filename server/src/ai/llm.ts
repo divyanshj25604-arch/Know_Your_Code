@@ -4,7 +4,7 @@ import { KycError } from '@kyc/core';
 import { FakeLlm } from './fake';
 import { GroqLlm } from './groq';
 
-export type LlmTask = 'explain' | 'followup' | 'concept' | 'check' | 'overview';
+export type LlmTask = 'explain' | 'followup' | 'concept' | 'check' | 'overview' | 'flow' | 'grade';
 
 export interface LlmCall {
   task: LlmTask;
@@ -27,18 +27,25 @@ export interface LlmOutput {
   totalMs: number;
   stopReason: string | null;
   refused: boolean;
+  /** Milliseconds until the first output token, when the provider streamed. */
+  firstTokenMs?: number;
 }
 
 /** Provider boundary (docs/10 §7). Nothing outside src/ai/llm.ts knows about a specific provider. */
 export interface LlmClient {
   readonly kind: 'anthropic' | 'fake' | 'groq';
   complete(call: LlmCall): Promise<LlmOutput>;
+  /**
+   * Optional streaming variant: `onText` receives output as it is generated, and the result is the same as
+   * `complete`. Providers without streaming omit it and callers fall back to `complete`.
+   */
+  stream?(call: LlmCall, onText: (delta: string) => void): Promise<LlmOutput>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Which models accept `thinking: {type: "disabled"}`. Sonnet 5.5 / Opus 5.5 / Fable reject it (400). */
-function thinkingFor(model: string): { type: 'disabled' } | undefined {
+export function thinkingFor(model: string): { type: 'disabled' } | undefined {
   return /haiku-5/.test(model) ? { type: 'disabled' } : undefined;
 }
 
@@ -82,44 +89,53 @@ export class AnthropicLlm implements LlmClient {
     return { err: new KycError('AI_ERROR'), retry: false };
   }
 
+  private params(call: LlmCall) {
+    const thinking = thinkingFor(call.model);
+    return {
+      model: call.model,
+      max_tokens: call.maxTokens,
+      system: call.system,
+      messages: [{ role: 'user' as const, content: call.user }],
+      ...(thinking ? { thinking } : {}),
+      output_config: { effort: call.effort, format: { type: 'json_schema', schema: call.schema } },
+    };
+  }
+
+  private toOutput(res: Anthropic.Message, started: number, firstTokenMs?: number): LlmOutput {
+    const text = res.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+    let json: unknown = null;
+    if (text.trim()) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+    }
+    return {
+      json,
+      text,
+      inputTokens: res.usage.input_tokens,
+      outputTokens: res.usage.output_tokens,
+      totalMs: Math.round(performance.now() - started),
+      stopReason: res.stop_reason,
+      refused: res.stop_reason === 'refusal',
+      ...(firstTokenMs !== undefined ? { firstTokenMs } : {}),
+    };
+  }
+
   async complete(call: LlmCall): Promise<LlmOutput> {
     const started = performance.now();
     let attempt = 0;
     for (;;) {
       try {
-        const thinking = thinkingFor(call.model);
         const res = await this.client.messages.create(
-          {
-            model: call.model,
-            max_tokens: call.maxTokens,
-            system: call.system,
-            messages: [{ role: 'user', content: call.user }],
-            ...(thinking ? { thinking } : {}),
-            output_config: { effort: call.effort, format: { type: 'json_schema', schema: call.schema } },
-          } as Anthropic.MessageCreateParamsNonStreaming,
+          this.params(call) as Anthropic.MessageCreateParamsNonStreaming,
           { timeout: call.timeoutMs, ...(call.signal ? { signal: call.signal } : {}) },
         );
-        const text = res.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('');
-        let json: unknown = null;
-        if (text.trim()) {
-          try {
-            json = JSON.parse(text);
-          } catch {
-            json = null;
-          }
-        }
-        return {
-          json,
-          text,
-          inputTokens: res.usage.input_tokens,
-          outputTokens: res.usage.output_tokens,
-          totalMs: Math.round(performance.now() - started),
-          stopReason: res.stop_reason,
-          refused: res.stop_reason === 'refusal',
-        };
+        return this.toOutput(res, started);
       } catch (raw) {
         const { err, retry } = this.mapError(raw);
         attempt++;
@@ -127,6 +143,25 @@ export class AnthropicLlm implements LlmClient {
         const retryAfter = Number((raw as { headers?: Headers })?.headers?.get?.('retry-after') ?? 0);
         await sleep(Math.min(3000, retryAfter > 0 ? retryAfter * 1000 : 400 + Math.random() * 400));
       }
+    }
+  }
+
+  /** Streaming request. No transparent retry: output may already have reached the caller. */
+  async stream(call: LlmCall, onText: (delta: string) => void): Promise<LlmOutput> {
+    const started = performance.now();
+    let firstTokenMs: number | undefined;
+    try {
+      const s = this.client.messages.stream(this.params(call) as Anthropic.MessageStreamParams, {
+        timeout: call.timeoutMs,
+        ...(call.signal ? { signal: call.signal } : {}),
+      });
+      s.on('text', (delta: string) => {
+        firstTokenMs ??= Math.round(performance.now() - started);
+        onText(delta);
+      });
+      return this.toOutput(await s.finalMessage(), started, firstTokenMs);
+    } catch (raw) {
+      throw this.mapError(raw).err;
     }
   }
 }

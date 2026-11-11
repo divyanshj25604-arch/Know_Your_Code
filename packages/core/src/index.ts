@@ -55,3 +55,5 @@ export {
   type RetrievalIntent,
 } from './retrieval/planner';
 export { MemoryGraphStore, byOutbound, cmpId } from './retrieval/memoryStore';
+
+export { edgeClaims, verifyClaims, verifyLines, verifyRefs, type VerifyStats } from './ai/verify';

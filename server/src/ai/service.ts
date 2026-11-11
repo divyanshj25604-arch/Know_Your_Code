@@ -2,50 +2,29 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import {
   CONCEPT_VOCAB,
-  type CheckBody,
-  type ConceptBody,
+  type CapabilityId,
+  type Claim,
   type Depth,
+  type EvidenceSummary,
   type ExplanationBody,
-  type FollowUpBody,
   type Overview,
   type Relations,
   type Selection,
 } from '@kyc/contracts';
+import { KycError, relationsOf } from '@kyc/core';
 import type { Config } from '../config/env';
 import type { Db } from '../db/pool';
-import { KycError } from '@kyc/core';
-import { buildContextPack, type ContextPack } from '../retrieval/context';
 import { getFileContent } from '../index/files';
+import { PgGraphStore } from '../index/graphStore';
 import { resolveSelection, type ResolvedSelection } from '../index/resolve';
 import { topSymbols } from '../index/symbols';
-import { PgGraphStore } from '../index/graphStore';
-import { relationsOf } from '@kyc/core';
-import { assertBudget, costUsd, logLlmCall, modelFor, type Tier } from './cost';
-import type { LlmClient, LlmCall, LlmTask } from './llm';
-import {
-  CHECK_JSON_SCHEMA,
-  CONCEPT_JSON_SCHEMA,
-  EXPLANATION_JSON_SCHEMA,
-  FOLLOWUP_JSON_SCHEMA,
-  ModelOutputError,
-  OVERVIEW_JSON_SCHEMA,
-  OverviewOutputSchema,
-  normaliseCheck,
-  normaliseConcept,
-  normaliseExplanation,
-  normaliseFollowUp,
-} from './schemas';
-import {
-  OVERVIEW_TASK,
-  PROMPT_VERSION,
-  SYSTEM_RULES,
-  checkTask,
-  conceptTask,
-  explainTask,
-  followupTask,
-  userMessage,
-} from './prompts';
-import { verifyLines, verifyRefs, type VerifyStats } from './verify';
+import { buildContextPack } from '../retrieval/context';
+import { logLlmCall, modelFor } from './cost';
+import { Executor, type RunContext, type RunResult } from './executor';
+import type { LlmClient } from './llm';
+import { PROMPT_VERSION } from './prompts';
+import { CAPABILITIES } from './registry';
+import * as store from './store';
 
 export type Emit = (event: string, data: unknown) => void;
 
@@ -62,138 +41,70 @@ export interface PreparedExplain extends ExplainRequest {
   relations: Relations | null;
 }
 
-const MAX_TOKENS: Record<LlmTask, number> = {
-  explain: 1400,
-  followup: 900,
-  concept: 900,
-  check: 700,
-  overview: 900,
-};
-const EXPLAIN_BUDGET = 6000;
-const FOLLOWUP_BUDGET = 8000;
-
 const CONCEPT_LABELS: Record<string, string> = Object.fromEntries(
   CONCEPT_VOCAB.map((id) => [id, id.replace(/-/g, ' ')]),
 );
 
+const summary = (env: {
+  capability: CapabilityId;
+  version: string;
+  claims: Claim[];
+  claimsDowngraded: number;
+}): EvidenceSummary => ({
+  capability: env.capability,
+  version: env.version,
+  claims: env.claims,
+  claimsDowngraded: env.claimsDowngraded,
+});
+
+/**
+ * Orchestrates the AI capabilities (P2.3): resolves the request, plans the context, runs the registered capability
+ * through the executor, stores the answer and streams it. Capability logic lives in ai/capabilities, the model loop
+ * in ai/executor.ts and all SQL in ai/store.ts.
+ */
 export class AiService {
+  private readonly exec: Executor;
+
   constructor(
     private readonly config: Config,
     private readonly db: Db,
     readonly llm: LlmClient | null,
     private readonly log: FastifyBaseLogger,
-  ) {}
+  ) {
+    this.exec = new Executor(config, db, llm, log);
+  }
 
   get configured(): boolean {
     return this.llm !== null;
   }
 
-  private requireLlm(): LlmClient {
-    if (!this.llm) throw new KycError('AI_NOT_CONFIGURED');
-    return this.llm;
+  /** Streams progress (characters generated so far) as `progress` events, at most every 200 characters. */
+  private progress(emit: Emit, capability: CapabilityId): RunContext['onProgress'] {
+    let last = 0;
+    return (chars) => {
+      if (chars - last < 200) return;
+      last = chars;
+      emit('progress', { capability, chars });
+    };
   }
 
-  // ------------------------------------------------------------------ core model call
-
-  private async generate<T>(o: {
-    ownerId: string | null;
-    snapshotId: string | null;
-    task: LlmTask;
-    tier: Tier;
-    system: string;
-    user: string;
-    schema: Record<string, unknown>;
-    normalise: (raw: unknown) => T;
-    fallback?: (text: string) => T | null;
-    signal?: AbortSignal;
-  }): Promise<{ value: T; model: string; degraded: boolean }> {
-    const llm = this.requireLlm();
-    await assertBudget(this.db, this.config);
-    const model = modelFor(this.config, o.tier);
-    let user = o.user;
-    let lastText = '';
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      const call: LlmCall = {
-        task: o.task,
-        model,
-        system: o.system,
-        user,
-        schema: o.schema,
-        maxTokens: MAX_TOKENS[o.task],
-        effort: 'medium',
-        timeoutMs: this.config.AI_TIMEOUT_MS,
-        ...(o.signal ? { signal: o.signal } : {}),
-      };
-      let out;
-      try {
-        out = await llm.complete(call);
-      } catch (e) {
-        await logLlmCall(this.db, {
-          ownerId: o.ownerId,
-          snapshotId: o.snapshotId,
-          task: o.task,
-          model,
-          promptVersion: PROMPT_VERSION,
-          inputTokens: null,
-          outputTokens: null,
-          costUsd: null,
-          totalMs: null,
-          status: e instanceof KycError ? e.code : 'error',
-          cacheHit: false,
-        });
-        throw e;
-      }
-      const cost = costUsd(this.config, o.tier, out.inputTokens, out.outputTokens);
-      lastText = out.text;
-      if (out.refused) {
-        await logLlmCall(this.db, {
-          ownerId: o.ownerId,
-          snapshotId: o.snapshotId,
-          task: o.task,
-          model,
-          promptVersion: PROMPT_VERSION,
-          inputTokens: out.inputTokens,
-          outputTokens: out.outputTokens,
-          costUsd: cost,
-          totalMs: out.totalMs,
-          status: 'refusal',
-          cacheHit: false,
-        });
-        throw new KycError('AI_ERROR', "Couldn't explain this selection. Try a smaller selection.");
-      }
-      if (out.stopReason === 'max_tokens') this.log.warn({ task: o.task }, 'model output truncated');
-      let value: T | null = null;
-      let problem = '';
-      if (out.json === null || out.json === undefined) problem = 'empty or non-JSON output';
-      else {
-        try {
-          value = o.normalise(out.json);
-        } catch (e) {
-          problem = e instanceof ModelOutputError ? e.message : 'invalid output';
-        }
-      }
-      await logLlmCall(this.db, {
-        ownerId: o.ownerId,
-        snapshotId: o.snapshotId,
-        task: o.task,
-        model,
-        promptVersion: PROMPT_VERSION,
-        inputTokens: out.inputTokens,
-        outputTokens: out.outputTokens,
-        costUsd: cost,
-        totalMs: out.totalMs,
-        status: value ? 'ok' : `invalid:${problem}`.slice(0, 60),
-        cacheHit: false,
-      });
-      if (value) return { value, model, degraded: false };
-      user = `${o.user}\n\nYour previous reply did not match the required JSON schema (${problem}). Reply with the JSON object only.`;
-    }
-    const fb = o.fallback?.(lastText);
-    if (fb) return { value: fb, model, degraded: true };
-    throw new KycError('AI_ERROR', "Couldn't explain this selection. Try a smaller selection.");
+  private async cacheHit(ownerId: string, snapshotId: string, task: string) {
+    await logLlmCall(this.db, {
+      ownerId,
+      snapshotId,
+      task,
+      model: modelFor(this.config, 'fast'),
+      promptVersion: PROMPT_VERSION,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+      totalMs: 0,
+      status: 'ok',
+      cacheHit: true,
+    });
   }
 
-  // ------------------------------------------------------------------ explanations
+  // ------------------------------------------------------------------ explain selection
 
   async prepareExplain(req: ExplainRequest): Promise<PreparedExplain> {
     const resolved = await resolveSelection(this.db, req.snapshotId, req.selection);
@@ -213,179 +124,90 @@ export class AiService {
           `${s.startLine}:${s.startCol}-${s.endLine}:${s.endCol}`,
           p.resolved.kind,
           p.depth,
-          PROMPT_VERSION,
+          CAPABILITIES.explain_selection.version,
           model,
         ].join('|'),
       )
       .digest('hex');
   }
 
-  private async facts(snapshotId: string) {
-    const r = await this.db.query<{
-      overview: { facts?: { frameworks: string[]; languages: Record<string, number> } } | null;
-    }>('SELECT overview FROM snapshots WHERE id=$1', [snapshotId]);
-    const f = r.rows[0]?.overview?.facts;
-    return f ? { frameworks: f.frameworks, languages: f.languages } : null;
-  }
-
-  private verifyExplanation(
-    body: ExplanationBody,
-    pack: ContextPack,
-  ): { body: ExplanationBody; stats: VerifyStats } {
-    const stats: VerifyStats = { total: 0, stripped: 0 };
-    const s = body.sections;
-    const path = [...pack.ranges.keys()][0] ?? null;
-    const out: ExplanationBody = {
-      ...body,
-      sections: {
-        what: { ...s.what, refs: verifyRefs(s.what.refs, pack.ranges, stats) },
-        ...(s.why ? { why: { ...s.why, refs: verifyRefs(s.why.refs, pack.ranges, stats) } } : {}),
-        ...(s.steps
-          ? {
-              steps: s.steps.map((st) => ({ ...st, lines: verifyLines(st.lines, path, pack.ranges, stats) })),
-            }
-          : {}),
-        ...(s.inputs ? { inputs: { ...s.inputs, refs: verifyRefs(s.inputs.refs, pack.ranges, stats) } } : {}),
-        ...(s.dependsOn ? { dependsOn: s.dependsOn } : {}),
-        ...(s.effects
-          ? { effects: { ...s.effects, refs: verifyRefs(s.effects.refs, pack.ranges, stats) } }
-          : {}),
-        ...(s.edgeCases
-          ? { edgeCases: s.edgeCases.map((e) => ({ ...e, refs: verifyRefs(e.refs, pack.ranges, stats) })) }
-          : {}),
-      },
-    };
-    return { body: out, stats };
-  }
-
-  /** Stream an explanation: relations first (deterministic), then validated sections. Errors after the stream starts go through `emit('error')`. */
+  /** Relations first (deterministic), then the validated sections. Errors after the stream opens go to `emit`. */
   async streamExplain(p: PreparedExplain, emit: Emit, signal?: AbortSignal): Promise<void> {
     emit(
       'relations',
       p.relations ?? { symbol: null, definedIn: null, calledBy: [], calls: [], imports: [], unresolved: [] },
     );
-    const fastModel = modelFor(this.config, 'fast');
-    const key = this.cacheKey(p, fastModel);
-    const cached = await this.db.query<{ id: string; body: ExplanationBody; refs_stripped: number }>(
-      'SELECT id, body, refs_stripped FROM explanations WHERE snapshot_id=$1 AND cache_key=$2 AND owner_id=$3 ORDER BY created_at DESC LIMIT 1',
-      [p.snapshotId, key, p.ownerId],
-    );
-    if (cached.rows[0]) {
-      const c = cached.rows[0];
-      await logLlmCall(this.db, {
-        ownerId: p.ownerId,
-        snapshotId: p.snapshotId,
-        task: 'explain',
-        model: fastModel,
-        promptVersion: PROMPT_VERSION,
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        totalMs: 0,
-        status: 'ok',
-        cacheHit: true,
+    const cap = CAPABILITIES.explain_selection;
+    const key = this.cacheKey(p, modelFor(this.config, 'fast'));
+    const cached = await store.cachedExplanation(this.db, p.snapshotId, key, p.ownerId);
+    if (cached) {
+      await this.cacheHit(p.ownerId, p.snapshotId, 'explain');
+      return this.emitExplanation(emit, cached.id, cached.body, p, true, cached.refs_stripped, {
+        capability: cap.id,
+        version: cap.version,
+        claims: cached.claims,
+        claimsDowngraded: 0,
       });
-      return this.emitExplanation(emit, c.id, c.body, p, true, c.refs_stripped);
     }
-
     const pack = await buildContextPack({
       db: this.db,
       snapshotId: p.snapshotId,
       selection: p.selection,
       resolved: p.resolved,
-      maxTokens: EXPLAIN_BUDGET,
-      facts: await this.facts(p.snapshotId),
+      intent: 'explain',
+      maxTokens: cap.budget,
+      facts: await store.snapshotFacts(this.db, p.snapshotId),
     });
     const input = {
       kind: p.resolved.kind,
       depth: p.depth,
-      selection: { path: p.selection.path, startLine: p.selection.startLine, endLine: p.selection.endLine },
+      selection: p.selection,
       enclosingSymbol: p.resolved.symbol?.name ?? null,
       note: p.resolved.note ?? null,
     };
-    const user = userMessage({ task: explainTask(p.resolved.kind, p.depth), input, pack: pack.text });
-    const run = (tier: Tier) =>
-      this.generate<ExplanationBody>({
-        ownerId: p.ownerId,
-        snapshotId: p.snapshotId,
-        task: 'explain',
-        tier,
-        system: SYSTEM_RULES,
-        user,
-        schema: EXPLANATION_JSON_SCHEMA as unknown as Record<string, unknown>,
-        normalise: (raw) => normaliseExplanation(raw, p.resolved.kind),
-        fallback: (text) =>
-          text.trim() && !text.trim().startsWith('{')
-            ? {
-                kind: p.resolved.kind,
-                sections: { what: { text: text.trim().slice(0, 1200), refs: [] } },
-                concepts: [],
-                exploreNext: [],
-                uncertainty: [
-                  {
-                    text: "The model's reply wasn't in the expected format, so only its plain text is shown.",
-                  },
-                ],
-              }
-            : null,
-        ...(signal ? { signal } : {}),
-      });
-
-    let { value, model } = await run('fast');
-    let verified = this.verifyExplanation(value, pack);
+    const ctx: RunContext = {
+      ownerId: p.ownerId,
+      snapshotId: p.snapshotId,
+      ...(signal ? { signal } : {}),
+      onProgress: this.progress(emit, cap.id),
+    };
+    let env: RunResult<ExplanationBody> = await this.exec.run(cap, input, pack, ctx);
+    // Too many references outside what the model was shown: try once on the strong model, keep the better one.
     if (
-      verified.stats.total > 0 &&
-      verified.stats.stripped / verified.stats.total > 0.3 &&
+      env.refsTotal > 0 &&
+      env.refsStripped / env.refsTotal > 0.3 &&
       this.config.MODEL_STRONG !== this.config.MODEL_FAST
     ) {
       try {
-        const second = await run('strong');
-        const v2 = this.verifyExplanation(second.value, pack);
-        if (v2.stats.stripped <= verified.stats.stripped) {
-          value = second.value;
-          model = second.model;
-          verified = v2;
-        }
+        const second = await this.exec.run(cap, input, pack, { ...ctx, tier: 'strong' });
+        if (second.refsStripped <= env.refsStripped) env = second;
       } catch (e) {
         this.log.warn({ code: e instanceof KycError ? e.code : 'error' }, 'strong-tier regeneration skipped');
       }
     }
-    const explanationId = randomUUID();
-    // The repository and commit are copied from the snapshot so the explanation stays meaningful after retention
-    // deletes the snapshot; the symbol is recorded by its stable key as well as by this run's row id.
-    const inserted = await this.db.query(
-      `INSERT INTO explanations (id, snapshot_id, owner_id, parent_id, cache_key, selection, kind, depth, symbol_id, body,
-                                 prompt_version, model, refs_stripped, symbol_key, repository_id, commit_sha)
-       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, s.repository_id, s.commit_sha
-       FROM snapshots s WHERE s.id = $2`,
-      [
-        explanationId,
-        p.snapshotId,
-        p.ownerId,
-        p.parentId ?? null,
-        key,
-        JSON.stringify(p.selection),
-        p.resolved.kind,
-        p.depth,
-        p.resolved.symbol?.id ?? null,
-        JSON.stringify(verified.body),
-        PROMPT_VERSION,
-        model,
-        verified.stats.stripped,
-        p.resolved.symbol?.key ?? null,
-      ],
-    );
+    const id = randomUUID();
+    const stored = await store.insertExplanation(this.db, {
+      id,
+      snapshotId: p.snapshotId,
+      ownerId: p.ownerId,
+      parentId: p.parentId ?? null,
+      cacheKey: key,
+      selection: p.selection,
+      kind: p.resolved.kind,
+      depth: p.depth,
+      symbolId: p.resolved.symbol?.id ?? null,
+      symbolKey: p.resolved.symbol?.key ?? null,
+      body: env.payload,
+      promptVersion: PROMPT_VERSION,
+      model: env.model,
+      refsStripped: env.refsStripped,
+      capability: env.capability,
+      capabilityVersion: env.version,
+      claims: env.claims,
+    });
     // The snapshot was deleted while the model was answering: there is nothing left to attach the answer to.
-    if (!inserted.rowCount) throw new KycError('SNAPSHOT_EXPIRED');
-    if (verified.stats.stripped) {
-      await this.db
-        .query(
-          `UPDATE llm_calls SET refs_stripped=$1 WHERE id = (SELECT max(id) FROM llm_calls WHERE owner_id=$2 AND task='explain')`,
-          [verified.stats.stripped, p.ownerId],
-        )
-        .catch(() => undefined);
-    }
-    return this.emitExplanation(emit, explanationId, verified.body, p, false, verified.stats.stripped);
+    if (!stored) throw new KycError('SNAPSHOT_EXPIRED');
+    return this.emitExplanation(emit, id, env.payload, p, false, env.refsStripped, summary(env));
   }
 
   private emitExplanation(
@@ -395,6 +217,7 @@ export class AiService {
     p: PreparedExplain,
     cached: boolean,
     stripped: number,
+    evidence: EvidenceSummary,
   ) {
     emit('meta', {
       explanationId: id,
@@ -420,36 +243,23 @@ export class AiService {
       tryIt: body.tryIt ?? null,
       uncertainty: body.uncertainty,
       refsStripped: stripped,
+      evidence,
     });
   }
 
-  // ------------------------------------------------------------------ thread messages
+  // ------------------------------------------------------------------ thread: follow-up, simpler/deeper, concept
 
   /**
-   * An explanation the caller owns whose code is still stored. Explanations outlive their snapshot (learning
-   * history is kept after retention deletes code), but continuing one needs the code: SNAPSHOT_EXPIRED otherwise.
+   * An explanation the caller owns whose code is still stored. Explanations outlive their snapshot (learning history
+   * is kept after retention), but continuing one needs the code: SNAPSHOT_EXPIRED otherwise.
    */
   private async loadExplanation(ownerId: string, explanationId: string) {
-    const r = await this.db.query<{
-      id: string;
-      snapshot_id: string | null;
-      owner_id: string;
-      selection: Selection;
-      depth: Depth;
-      body: ExplanationBody;
-      symbol_id: string | null;
-      kind: string;
-    }>(
-      'SELECT id, snapshot_id, owner_id, selection, depth, body, symbol_id, kind FROM explanations WHERE id=$1',
-      [explanationId],
-    );
-    const row = r.rows[0];
+    const row = await store.getExplanation(this.db, explanationId);
     if (!row) throw new KycError('NOT_FOUND');
     if (row.owner_id !== ownerId)
       throw new KycError('NOT_OWNER', 'Only the account that created this explanation can continue it.');
-    const snapshotId = row.snapshot_id;
-    if (!snapshotId) throw new KycError('SNAPSHOT_EXPIRED');
-    return { ...row, snapshot_id: snapshotId };
+    if (!row.snapshot_id) throw new KycError('SNAPSHOT_EXPIRED');
+    return { ...row, snapshot_id: row.snapshot_id };
   }
 
   async prepareMessage(ownerId: string, explanationId: string) {
@@ -479,98 +289,78 @@ export class AiService {
       return this.streamExplain(prepared, emit, signal);
     }
     const resolved = await resolveSelection(this.db, ex.snapshot_id, ex.selection);
-    const history = await this.db.query<{ role: string; body: { text?: string; plain?: string } }>(
-      'SELECT role, body FROM messages WHERE explanation_id=$1 ORDER BY created_at DESC LIMIT 4',
-      [explanationId],
-    );
-    const hist = history.rows
-      .reverse()
-      .map((m) => ({ role: m.role, text: (m.body.text ?? m.body.plain ?? '').slice(0, 600) }));
-    const summary =
+    const previousExplanationSummary =
       `${ex.body.sections.what.text}${ex.body.sections.dependsOn ? ` ${ex.body.sections.dependsOn.text}` : ''}`.slice(
         0,
         1700,
       );
+    const ctx = (cap: CapabilityId): RunContext => ({
+      ownerId,
+      snapshotId: ex.snapshot_id,
+      ...(signal ? { signal } : {}),
+      onProgress: this.progress(emit, cap),
+    });
+    const facts = await store.snapshotFacts(this.db, ex.snapshot_id);
 
     if (req.intent === 'followup') {
+      const cap = CAPABILITIES.follow_up;
       const question = (req.text ?? '').trim();
       const pack = await buildContextPack({
         db: this.db,
         snapshotId: ex.snapshot_id,
         selection: ex.selection,
         resolved,
+        intent: 'followup',
         question,
-        maxTokens: FOLLOWUP_BUDGET,
-        facts: await this.facts(ex.snapshot_id),
+        maxTokens: cap.budget,
+        facts,
       });
-      const user = userMessage({
-        task: followupTask(ex.depth),
-        input: { question, depth: ex.depth, previousExplanationSummary: summary, recentThread: hist },
-        pack: pack.text,
-      });
-      const { value } = await this.generate<FollowUpBody>({
-        ownerId,
-        snapshotId: ex.snapshot_id,
-        task: 'followup',
-        tier: 'fast',
-        system: SYSTEM_RULES,
-        user,
-        schema: FOLLOWUP_JSON_SCHEMA as unknown as Record<string, unknown>,
-        normalise: normaliseFollowUp,
-        fallback: (t) =>
-          t.trim() && !t.trim().startsWith('{')
-            ? { text: t.trim().slice(0, 1200), refs: [], uncertainty: [] }
-            : null,
-        ...(signal ? { signal } : {}),
-      });
-      const stats: VerifyStats = { total: 0, stripped: 0 };
-      const body: FollowUpBody = { ...value, refs: verifyRefs(value.refs, pack.ranges, stats) };
-      await this.db.query(
-        `INSERT INTO messages (explanation_id, role, intent, body) VALUES ($1,'user','followup',$2)`,
-        [explanationId, JSON.stringify({ text: question })],
+      const recent = await store.recentThread(this.db, explanationId, 4);
+      const env = await this.exec.run(
+        cap,
+        { question, depth: ex.depth, previousExplanationSummary, recentThread: recent },
+        pack,
+        ctx(cap.id),
       );
+      await store.insertMessage(this.db, {
+        explanationId,
+        role: 'user',
+        intent: 'followup',
+        body: { text: question },
+      });
       const id = randomUUID();
-      await this.db.query(
-        `INSERT INTO messages (id, explanation_id, role, intent, body) VALUES ($1,$2,'assistant','followup',$3)`,
-        [id, explanationId, JSON.stringify(body)],
-      );
-      emit('message', { messageId: id, ...body });
+      await store.insertMessage(this.db, {
+        id,
+        explanationId,
+        role: 'assistant',
+        intent: 'followup',
+        body: env.payload,
+        capability: env.capability,
+        capabilityVersion: env.version,
+        claims: env.claims,
+      });
+      emit('message', { messageId: id, ...env.payload });
       emit('done', {
         messageId: id,
-        refs: body.refs,
-        uncertainty: body.uncertainty,
-        refsStripped: stats.stripped,
+        refs: env.payload.refs,
+        uncertainty: env.payload.uncertainty,
+        refsStripped: env.refsStripped,
+        evidence: summary(env),
       });
       return;
     }
 
     // concept
+    const cap = CAPABILITIES.teach_concept;
     const conceptId = req.conceptId ?? '';
     const label = CONCEPT_LABELS[conceptId] ?? conceptId.replace(/^other:/, '');
     if (!CONCEPT_LABELS[conceptId] && !conceptId.startsWith('other:'))
       throw new KycError('INVALID_REQUEST', 'Unknown concept.');
-    const cachedConcept = await this.db.query<{ id: string; body: ConceptBody }>(
-      `SELECT m.id, m.body FROM messages m JOIN explanations e ON e.id = m.explanation_id
-       WHERE e.snapshot_id=$1 AND e.symbol_id IS NOT DISTINCT FROM $2 AND m.intent='concept' AND m.body->>'concept' = $3 LIMIT 1`,
-      [ex.snapshot_id, ex.symbol_id, conceptId],
-    );
-    if (cachedConcept.rows[0]) {
-      const c = cachedConcept.rows[0];
-      await logLlmCall(this.db, {
-        ownerId,
-        snapshotId: ex.snapshot_id,
-        task: 'concept',
-        model: modelFor(this.config, 'fast'),
-        promptVersion: PROMPT_VERSION,
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        totalMs: 0,
-        status: 'ok',
-        cacheHit: true,
-      });
-      emit('message', { messageId: c.id, cached: true, ...c.body });
-      emit('done', { messageId: c.id, refs: c.body.inYourCode, uncertainty: [], refsStripped: 0 });
+    const hit = await store.cachedConcept(this.db, ex.snapshot_id, ex.symbol_id, conceptId);
+    if (hit) {
+      await this.cacheHit(ownerId, ex.snapshot_id, 'concept');
+      emit('message', { messageId: hit.id, cached: true, ...hit.body });
+      emit('done', { messageId: hit.id, refs: hit.body.inYourCode, uncertainty: [], refsStripped: 0 });
       return;
     }
     const pack = await buildContextPack({
@@ -578,122 +368,200 @@ export class AiService {
       snapshotId: ex.snapshot_id,
       selection: ex.selection,
       resolved,
-      maxTokens: EXPLAIN_BUDGET,
-      facts: await this.facts(ex.snapshot_id),
+      intent: 'concept',
+      maxTokens: cap.budget,
+      facts,
     });
-    const user = userMessage({
-      task: conceptTask(conceptId, label),
-      input: { conceptId, conceptLabel: label, previousExplanationSummary: summary },
-      pack: pack.text,
-    });
-    const { value } = await this.generate<ConceptBody>({
-      ownerId,
-      snapshotId: ex.snapshot_id,
-      task: 'concept',
-      tier: 'fast',
-      system: SYSTEM_RULES,
-      user,
-      schema: CONCEPT_JSON_SCHEMA as unknown as Record<string, unknown>,
-      normalise: normaliseConcept,
-      ...(signal ? { signal } : {}),
-    });
-    const stats: VerifyStats = { total: 0, stripped: 0 };
-    const okRefs = verifyRefs(
-      value.inYourCode.map((x) => ({ path: x.path, line: x.line })),
-      pack.ranges,
-      stats,
+    const env = await this.exec.run(
+      cap,
+      { conceptId, conceptLabel: label, previousExplanationSummary },
+      pack,
+      ctx(cap.id),
     );
-    const body: ConceptBody = {
-      ...value,
-      concept: conceptId,
-      inYourCode: value.inYourCode.filter((x) => okRefs.some((r) => r.path === x.path && r.line === x.line)),
-    };
     const id = randomUUID();
-    await this.db.query(
-      `INSERT INTO messages (id, explanation_id, role, intent, body) VALUES ($1,$2,'assistant','concept',$3)`,
-      [id, explanationId, JSON.stringify(body)],
-    );
-    emit('message', { messageId: id, cached: false, ...body });
-    emit('done', { messageId: id, refs: body.inYourCode, uncertainty: [], refsStripped: stats.stripped });
+    await store.insertMessage(this.db, {
+      id,
+      explanationId,
+      role: 'assistant',
+      intent: 'concept',
+      body: env.payload,
+      capability: env.capability,
+      capabilityVersion: env.version,
+      claims: env.claims,
+    });
+    emit('message', { messageId: id, cached: false, ...env.payload });
+    emit('done', {
+      messageId: id,
+      refs: env.payload.inYourCode,
+      uncertainty: [],
+      refsStripped: env.refsStripped,
+      evidence: summary(env),
+    });
   }
 
-  // ------------------------------------------------------------------ optional checks
+  // ------------------------------------------------------------------ explain flow
+
+  /**
+   * Explain how execution flows from a symbol through its verified calls (up to `hops` hops). The flow steps come
+   * from the retrieval planner before the model is called and are streamed first, so they are shown even if the
+   * model fails. Stored as an explanation of kind "flow", so it is part of the learning history.
+   */
+  async streamFlow(
+    o: { ownerId: string; snapshotId: string; symbolId: string; hops: number; depth: Depth },
+    emit: Emit,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const cap = CAPABILITIES.explain_flow;
+    const graph = new PgGraphStore(this.db, o.snapshotId);
+    const start = await graph.symbol(o.symbolId);
+    if (!start) throw new KycError('NOT_FOUND');
+    const selection: Selection = {
+      path: start.path,
+      startLine: start.startLine,
+      startCol: start.startCol,
+      endLine: start.endLine,
+      endCol: start.endCol,
+    };
+    const resolved = await resolveSelection(this.db, o.snapshotId, selection);
+    const pack = await buildContextPack({
+      db: this.db,
+      snapshotId: o.snapshotId,
+      selection,
+      resolved,
+      intent: 'flow',
+      hops: o.hops,
+      maxTokens: cap.budget,
+      facts: null,
+    });
+    emit('flow', {
+      start: { id: start.id, key: start.key, name: start.name, path: start.path, line: start.startLine },
+      steps: pack.flow,
+    });
+    const env = await this.exec.run(
+      cap,
+      { depth: o.depth, start: { name: start.name, path: start.path, line: start.startLine } },
+      pack,
+      {
+        ownerId: o.ownerId,
+        snapshotId: o.snapshotId,
+        ...(signal ? { signal } : {}),
+        onProgress: this.progress(emit, cap.id),
+      },
+    );
+    const id = randomUUID();
+    const stored = await store.insertExplanation(this.db, {
+      id,
+      snapshotId: o.snapshotId,
+      ownerId: o.ownerId,
+      parentId: null,
+      cacheKey: createHash('sha256')
+        .update([o.snapshotId, o.symbolId, o.hops, o.depth, cap.version].join('|'))
+        .digest('hex'),
+      selection,
+      kind: 'flow',
+      depth: o.depth,
+      symbolId: start.id,
+      symbolKey: start.key,
+      body: env.payload,
+      promptVersion: PROMPT_VERSION,
+      model: env.model,
+      refsStripped: env.refsStripped,
+      capability: env.capability,
+      capabilityVersion: env.version,
+      claims: env.claims,
+    });
+    if (!stored) throw new KycError('SNAPSHOT_EXPIRED');
+    emit('section', { name: 'summary', ...env.payload.summary });
+    emit('section', { name: 'flowSteps', steps: env.payload.steps });
+    emit('done', {
+      explanationId: id,
+      uncertainty: env.payload.uncertainty,
+      refsStripped: env.refsStripped,
+      evidence: summary(env),
+    });
+  }
+
+  // ------------------------------------------------------------------ assess and grade
 
   async createCheck(ownerId: string, explanationId: string, signal?: AbortSignal) {
     const ex = await this.loadExplanation(ownerId, explanationId);
     const resolved = await resolveSelection(this.db, ex.snapshot_id, ex.selection);
+    const cap = CAPABILITIES.assess;
     const pack = await buildContextPack({
       db: this.db,
       snapshotId: ex.snapshot_id,
       selection: ex.selection,
       resolved,
-      maxTokens: EXPLAIN_BUDGET,
+      intent: 'assess',
+      maxTokens: cap.budget,
       facts: null,
     });
-    const user = userMessage({ task: checkTask(), input: { kind: resolved.kind }, pack: pack.text });
-    const { value } = await this.generate<CheckBody>({
+    const env = await this.exec.run(cap, { kind: resolved.kind }, pack, {
       ownerId,
       snapshotId: ex.snapshot_id,
-      task: 'check',
-      tier: 'fast',
-      system: SYSTEM_RULES,
-      user,
-      schema: CHECK_JSON_SCHEMA as unknown as Record<string, unknown>,
-      normalise: normaliseCheck,
       ...(signal ? { signal } : {}),
     });
-    const stats: VerifyStats = { total: 0, stripped: 0 };
-    const body: CheckBody = { ...value, answerRefs: verifyRefs(value.answerRefs, pack.ranges, stats) };
-    // A check whose answer cannot be tied to the shown code is not answerable from the code (docs/09 §9): discard it.
-    if (body.answerRefs.length === 0 || value.correctIndex === undefined || value.correctIndex > 3)
-      throw new KycError('AI_ERROR', "Couldn't make a good question for this selection.");
-    const r = await this.db.query<{ id: string }>(
-      `INSERT INTO check_attempts (explanation_id, question) VALUES ($1,$2) RETURNING id`,
-      [explanationId, JSON.stringify(body)],
-    );
-    return { checkId: r.rows[0]!.id, type: body.type, question: body.question, options: body.options ?? [] };
+    const body = env.payload;
+    const checkId = await store.insertCheck(this.db, explanationId, body);
+    return { checkId, type: body.type, question: body.question, options: body.options ?? [] };
   }
 
-  async answerCheck(ownerId: string, checkId: string, answerIndex: number) {
-    const r = await this.db.query<{
-      id: string;
-      explanation_id: string;
-      question: CheckBody;
-      owner_id: string;
-    }>(
-      `SELECT c.id, c.explanation_id, c.question, e.owner_id FROM check_attempts c JOIN explanations e ON e.id=c.explanation_id WHERE c.id=$1`,
-      [checkId],
-    );
-    const row = r.rows[0];
+  /** Grade an answer: an option index exactly, or free text with the rubric-grading capability. */
+  async answerCheck(ownerId: string, checkId: string, answer: { index?: number; text?: string }) {
+    const row = await store.getCheck(this.db, checkId);
     if (!row) throw new KycError('NOT_FOUND');
     if (row.owner_id !== ownerId) throw new KycError('NOT_OWNER');
     const q = row.question;
-    const correct = answerIndex === q.correctIndex;
-    const result = { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex };
-    await this.db.query('UPDATE check_attempts SET answer=$2, result=$3 WHERE id=$1', [
-      checkId,
-      JSON.stringify({ answerIndex }),
-      JSON.stringify(result),
-    ]);
-    return { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex ?? null };
+    if (answer.index !== undefined) {
+      const correct = answer.index === q.correctIndex;
+      const result = { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex };
+      await store.recordAnswer(this.db, checkId, { answerIndex: answer.index }, result);
+      return { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex ?? null };
+    }
+    const text = (answer.text ?? '').trim();
+    const ex = await this.loadExplanation(ownerId, row.explanation_id);
+    const resolved = await resolveSelection(this.db, ex.snapshot_id, ex.selection);
+    const cap = CAPABILITIES.grade;
+    const pack = await buildContextPack({
+      db: this.db,
+      snapshotId: ex.snapshot_id,
+      selection: ex.selection,
+      resolved,
+      intent: 'assess',
+      maxTokens: cap.budget,
+      facts: null,
+    });
+    const expected =
+      q.options && q.correctIndex !== undefined
+        ? (q.options[q.correctIndex] ?? q.explanation)
+        : q.explanation;
+    const env = await this.exec.run(
+      cap,
+      { question: q.question, expected, explanation: q.explanation, answer: text },
+      pack,
+      { ownerId, snapshotId: ex.snapshot_id },
+    );
+    const g = env.payload;
+    const result = {
+      correct: g.verdict === 'correct',
+      verdict: g.verdict,
+      feedback: g.feedback,
+      refs: g.refs,
+      correctIndex: q.correctIndex ?? null,
+      evidence: summary(env),
+    };
+    await store.recordAnswer(this.db, checkId, { text }, result);
+    return result;
   }
 
   // ------------------------------------------------------------------ project summary
 
   async summarise(snapshotId: string): Promise<Overview['summary']> {
     if (!this.llm) return { status: 'unavailable', provenance: 'explained' };
-    const snap = await this.db.query<{
-      overview: { facts: unknown; startingPoints: { path: string }[] } | null;
-    }>('SELECT overview FROM snapshots WHERE id=$1', [snapshotId]);
-    const ov = snap.rows[0]?.overview;
-    const paths = (
-      await this.db.query<{ path: string }>('SELECT path FROM files WHERE snapshot_id=$1 ORDER BY path', [
-        snapshotId,
-      ])
-    ).rows.map((r) => r.path);
+    const { overview, paths } = await store.summaryInputs(this.db, snapshotId);
     const top = await topSymbols(this.db, snapshotId, 6);
     const headerFiles = [
-      ...new Set([...(ov?.startingPoints ?? []).map((s) => s.path), ...top.map((t) => t.path)]),
+      ...new Set([...(overview?.startingPoints ?? []).map((s) => s.path), ...top.map((t) => t.path)]),
     ].slice(0, 10);
     const parts: string[] = [];
     for (const p of headerFiles) {
@@ -710,36 +578,15 @@ export class AiService {
       if (f) parts.push(`[README_EXCERPT]\n${f.content.slice(0, 2800)}`);
     }
     parts.unshift(
-      `[PROJECT_FACTS]\n${JSON.stringify(ov?.facts ?? {})}\n[FILE_LIST]\n${paths.slice(0, 120).join('\n')}`,
+      `[PROJECT_FACTS]\n${JSON.stringify(overview?.facts ?? {})}\n[FILE_LIST]\n${paths.slice(0, 120).join('\n')}`,
     );
-    const user = userMessage({ task: OVERVIEW_TASK, input: {}, pack: parts.join('\n\n') });
-    const pathSet = new Set(paths);
-    const { value } = await this.generate<{
-      summary: string;
-      modules: { name: string; paths: string[] }[];
-      refs: { path: string; line: number }[];
-    }>({
-      ownerId: null,
-      snapshotId,
-      task: 'overview',
-      tier: 'strong',
-      system: SYSTEM_RULES,
-      user,
-      schema: OVERVIEW_JSON_SCHEMA as unknown as Record<string, unknown>,
-      normalise: (raw) => {
-        const r = OverviewOutputSchema.safeParse(raw);
-        if (!r.success || !r.data.summary.trim()) throw new ModelOutputError('overview schema');
-        return r.data;
-      },
-    });
-    const words = value.summary.trim().split(/\s+/);
-    const text = words.length > 220 ? `${words.slice(0, 220).join(' ')}…` : value.summary.trim();
-    // Links must point at real files; line defaults to the top of the file.
-    const cleanRefs = value.refs.filter((r) => pathSet.has(r.path) && r.line >= 1).slice(0, 8);
-    const modules = value.modules
-      .map((m) => ({ name: m.name, paths: m.paths.filter((p) => pathSet.has(p)) }))
-      .filter((m) => m.name.trim() && m.paths.length)
-      .slice(0, 8);
-    return { status: 'ready', text, refs: cleanRefs, modules, provenance: 'explained' };
+    const env = await this.exec.run(
+      CAPABILITIES.summarise_project,
+      { paths },
+      null,
+      { ownerId: null, snapshotId },
+      parts.join('\n\n'),
+    );
+    return { status: 'ready', ...env.payload, provenance: 'explained' };
   }
 }
