@@ -329,6 +329,13 @@ Phase 1 is the bottleneck: identity, stable keys and the learner schema must lan
 - **CORS (P1.6):** exact-origin allowlist (`CORS_ALLOWED_ORIGINS`), never `*`, never credentials. Allow-listed origins authenticate only by bearer token. Any other foreign `Origin` is refused, including on reads.
 - Every migration has an operator rollback script (`server/src/db/rollbacks/`), exercised by `server/tests/migrations.test.ts`.
 
+**Phase 2 status (2026-11-12):** P2.1–P2.4 implemented and verified with the fake provider ([10_Phase_2_Completion_Report.md](10_Phase_2_Completion_Report.md)). Resolved: T4 (branching, server-persisted trail), T8 (deterministic multi-hop planner), T10 (capability registry; AI SQL in `ai/store.ts`). P2.3's real-model criteria remain blocked on P0.2. Implementation notes:
+
+- Retrieval planning lives in `@kyc/core` over a `GraphStore` interface (Postgres and in-memory stores).
+- Claims are verified in core: `verified` requires an edge the model was shown.
+- Learner positions are saved per repository and track.
+- The shell routes `/r/:id/:mode`, and uses hash routes off http(s).
+
 **Phase 2 — Experience and AI restructuring**
 
 | ID | Task | Why | Modules | Prerequisites | Unlocks | Acceptance criteria | Effort | Blocks MVP |

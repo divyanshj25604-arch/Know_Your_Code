@@ -27,6 +27,7 @@ All documentation lives in [`project-docs/`](project-docs/). Nothing else in the
 | `06_Frontend_and_Product_Experience_Audit.md`           | Client architecture, components, state, desktop readiness                                                                                                             |
 | `07_Architecture_Security_and_Cloud_Readiness_Audit.md` | Module coupling, shared-core extraction, jobs, security findings, deployment checklist                                                                                |
 | `08_Brand_Identity_Requirements.md`                     | **Authoritative brand requirement** (from `KnowYourCode-Brand-Kit-v1.0.pdf`): palette, type, logo rules, voice, tokens; audit of the current UI; brand-pass work list |
+| `10_Phase_2_Completion_Report.md`                       | Phase 2 (P2.1–P2.4): what changed, evidence per acceptance criterion, what is blocked on P0.2, risks                                                                  |
 | `09_Phase_1_Completion_Report.md`                       | What Phase 1 (and its Phase 0 prerequisites) changed, how it was verified, acceptance-criteria evidence, limitations and debt                                         |
 
 Diagrams are PNGs in `project-docs/images/`. The same documents also exist as Claude Docs (shareable copies); the files in
@@ -77,15 +78,18 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
 
 - `packages/contracts/` — shared TS types, Zod schemas, error codes (`@kyc/contracts`).
 - `packages/core/` — runtime-free logic (`@kyc/core`): analyser, stable symbol keys, selection classifier, overview,
-  file filters, redaction, `KycError`. Its tests own the sample-repository fixtures (`packages/core/tests/fixtures`).
+  file filters, redaction, `KycError`, retrieval planner over `GraphStore` (`retrieval/`), reference and claim
+  verifier (`ai/verify.ts`). Its tests own the sample-repository fixtures (`packages/core/tests/fixtures`).
 - `server/src/` — Fastify 5 API: `http/` (routes, auth routes, SSE, snapshot access, CORS and security), `auth/`
   (identity, sessions, passwords, share tokens, anonymous-work claim), `ingestion/` (GitHub URL, tarball, extraction),
   `analysis/` (worker host only), `index/` (raw-SQL persistence incl. analysis runs), `retrieval/` (context pack),
-  `ai/` (providers, prompts, schemas, verifier, cost, `AiService`), `jobs/` (in-process queue, transactional import
+  `ai/` (providers incl. streaming, capability registry `registry.ts` + `capabilities/*`, `executor.ts`, SQL `store.ts`,
+  prompts, schemas, cost, orchestrating `AiService`), `jobs/` (in-process queue, transactional import
   pipeline, retention), `db/` (pool + `withTx`, migration runner, `migrations/`, operator `rollbacks/`), `config/`.
 - `server/tests/` — Vitest suites against a real Postgres, fixtures, fake GitHub, E2E server bootstrap.
-- `client/src/` — React 19 + Vite SPA: `pages/`, `components/`, `hooks/`, `api/` (`createApiClient`, base URL and
-  auth strategy in `config.ts`), `styles/`.
+- `client/src/` — React 19 + Vite SPA: `pages/` (workspace under `/r/:id/:mode`), `components/` (`modes/`,
+  `explanation/` presentational parts), `hooks/useWorkspace.ts` (one track), `state/` (branching trail, query cache,
+  explanation store), `api/` (`createApiClient`, base URL and auth strategy in `config.ts`), `styles/`.
 - `e2e/` — Playwright specs (`live.spec.ts` needs `LIVE=1` and an API key).
 - `scripts/` — smoke test and measurement scripts.
 - `project-docs/` — the source-of-truth documents (00–09).
@@ -112,7 +116,7 @@ npm run db:migrate   # apply SQL migrations
 - Branch in use: `V1_KYC` (main branch for PRs: `main`). Do not commit or push unless asked.
 - Never read or print values from `.env`; refer to variables by name only.
 - Do not make billable AI calls (live tests, smoke `--ai`) without explicit approval.
-- Known traps: the workspace trail truncates forward history (T4); real-model AI is still unverified (T1, P0.2);
+- Known traps: real-model AI is still unverified (T1, P0.2), including streaming and thinking-aware token sizes;
   object-method `qualifiedName` doubling (T15). Resolved in Phase 1: S1 (bundled build requires explicit
   `NODE_ENV=production`), S2 (snapshot reads authorised), S3 (accounts), S6, S7, T2, T3, T6, T9, T13, T14.
 - The built server (`npm start`) refuses to start unless `NODE_ENV=production` is set; use `npm run dev` locally.
@@ -121,14 +125,14 @@ npm run db:migrate   # apply SQL migrations
 
 Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Document.md`.
 
-| Phase                            | Tasks                                                                                                                  | Status                                                                       |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 0 — Safety and evidence baseline | P0.1 config, P0.2 live AI baseline, P0.3 test gaps, P0.4 transactional imports                                         | P0.1, P0.3, P0.4 done; **P0.2 not started** (needs approved spend)           |
-| 1 — Foundations                  | P1.1 core package, P1.2 identity, P1.3 stable keys, P1.4 learner schema, P1.5 snapshot authz, P1.6 API base URL + CORS | **Done** 2026-11-12, awaiting review (see `09_Phase_1_Completion_Report.md`) |
-| Brand pass (unscheduled)         | Implement `08_Brand_Identity_Requirements.md` section E                                                                | Not started; needs approval                                                  |
-| 2 — Restructure                  | P2.1 learner state, P2.2 app shell, P2.3 AI registry, P2.4 retrieval planner                                           | Not started                                                                  |
-| 3 — Six levels                   | P3.1–P3.7                                                                                                              | Not started                                                                  |
-| 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | Not started                                                                  |
+| Phase                            | Tasks                                                                                                                  | Status                                                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 0 — Safety and evidence baseline | P0.1 config, P0.2 live AI baseline, P0.3 test gaps, P0.4 transactional imports                                         | P0.1, P0.3, P0.4 done; **P0.2 not started** (needs approved spend)                                                     |
+| 1 — Foundations                  | P1.1 core package, P1.2 identity, P1.3 stable keys, P1.4 learner schema, P1.5 snapshot authz, P1.6 API base URL + CORS | **Done** 2026-11-12, awaiting review (see `09_Phase_1_Completion_Report.md`)                                           |
+| Brand pass (unscheduled)         | Implement `08_Brand_Identity_Requirements.md` section E                                                                | Not started; needs approval                                                                                            |
+| 2 — Restructure                  | P2.1 learner state, P2.2 app shell, P2.3 AI registry, P2.4 retrieval planner                                           | **Done** 2026-11-12, awaiting review; P2.3 real-model criteria blocked on P0.2 (see `10_Phase_2_Completion_Report.md`) |
+| 3 — Six levels                   | P3.1–P3.7                                                                                                              | Not started                                                                                                            |
+| 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | Not started                                                                                                            |
 
 ## Changelog
 
@@ -139,3 +143,6 @@ Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Documen
   sessions, stable symbol keys and analysis runs, learning-layer schema, snapshot read authorisation and share links,
   configurable client API and CORS allowlist; migrations 004–008 with rollback scripts; PostgreSQL >= 15. Added
   `08_Brand_Identity_Requirements.md` and `09_Phase_1_Completion_Report.md`.
+- 2026-11-12 — Phase 2 (P2.1–P2.4) implemented: retrieval planner over `GraphStore` in core, AI capability registry
+  with evidence envelope and migration 009, server-persisted learner positions, branching workspace and the
+  Project/Learn/Explore/Validate shell. Phase 1 committed in nine commits. Added `10_Phase_2_Completion_Report.md`.
