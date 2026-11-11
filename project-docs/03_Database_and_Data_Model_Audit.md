@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Verdict
 
 The schema is a sound, well-indexed store for **disposable, per-user analysis snapshots**, but it cannot hold durable learning data as it stands. Every learning-related row (explanations, threads, checks) cascades from a snapshot that is deleted after 7 days, symbol IDs are random per run, and the only identity is an anonymous cookie. Flows, learning paths, missions and progress need new entities. Analysis versioning and stable symbol identity need changes to the existing ones.

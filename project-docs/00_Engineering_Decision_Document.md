@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> **Status 2026-11-12:** Phase 1 (P1.1–P1.6) and the Phase 0 prerequisites P0.1, P0.3 and P0.4 are implemented and verified; P0.2 (real-model baseline) has not been run (it needs approved spend). Sections 1–5 analyse the code at `b10a2f5` and are kept as that record; section 5 ends with the post-Phase-1 status of each affected risk, and section 7 records the implementation decisions. Full evidence: [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md). Brand requirements: [08_Brand_Identity_Requirements.md](08_Brand_Identity_Requirements.md).
+
 **Decision: keep this repository and reshape it.** Keep ingestion, the compiler-backed analyser, the worker host, the reference verifier and the UI primitives. Refactor persistence, retrieval, the AI service, the job pipeline, the workspace state and the API client around a shared core package. Build the learning layer (flows, paths, lessons, missions, progress, assessment) on top. The shortest MVP path starts with three things: security defaults, a stable code identity, and a durable learner identity that is not tied to 7-day snapshots.
 
 **Sources.** This document synthesises seven audits run against branch `V1_KYC` (HEAD `b10a2f5`). Nothing new was measured, and no billable or external calls were made.
@@ -250,6 +252,24 @@ The single most likely MVP failure is shipping AI that has never met a real mode
 | T15 | Object-method `qualifiedName` doubled; anonymous class expressions named `default` | `analysis/analyse.ts:222`, `:257` (Inference from code) [A2] | Low | Low | Certain | S | Clean labels |
 | T16 | In-process queue and rate limiter: single instance only | `jobs/runner.ts`; `http/limiter.ts` (Verified; documented) [A7] | Low | Low for MVP | n/a | M (later) | Horizontal scale |
 
+**Status after Phase 1 (2026-11-12)** — Verified unless stated; tests named in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md):
+
+| # | Status | How |
+| --- | --- | --- |
+| S1 | **Resolved** | The bundled server refuses to start without explicit `NODE_ENV=production`; production rejects a missing or development `COOKIE_SECRET` (`config/env.ts` `loadConfig`, `config/build.ts`; `config.test.ts`) |
+| S2 | **Resolved** | Every snapshot read path, including symbol relations, requires the owner or a signed share token; others get 404 (`http/snapshotAccess.ts`; `snapshot-authz.test.ts`) |
+| S3 | **Resolved** | Registered accounts with hashed, expiring, revocable session tokens; cookie for web, bearer for desktop (`auth/*`; `auth.test.ts`) |
+| S6 | **Resolved** | Production forces worker analysis; `inline` is rejected (`config.test.ts`) |
+| S7 | **Resolved** | The bundled build never reads a parent `.env` (`config/dotenv.ts`; `dotenv.test.ts`) |
+| T2 | **Resolved** | Learning rows hang off the durable repository row; retention deletes code only (`007_learning_layer.sql`; `learning-layer.test.ts`) |
+| T3 | **Resolved** | Stable `symbol_key` per symbol, identical across re-imports (`packages/core/src/analysis/symbolKey.ts`; `symbolKey.test.ts`, `analysis-runs.test.ts`) |
+| T6 | **Resolved** (server and API client) | Configurable base URL and auth strategy in the client; CORS allowlist on the server (`client/src/api/*`; `cors.test.ts`, `client.test.ts`). The desktop shell itself is P4.1 |
+| T9 | **Resolved** | Per-snapshot writes are one transaction; re-runs are idempotent (`jobs/importJob.ts`; `import-idempotency.test.ts`) |
+| T13 | **Resolved** | Tests for `recover()`, `POST /events`, `buildContextPack`, plain-text fallback |
+| T14 | **Resolved** | Re-importing a failed or expired commit resets the snapshot (error cleared, expiry refreshed) |
+| T1, T5 | Open | P0.2 not run |
+| T4, T7, T8, T10–T12, T15, T16, S4, S5, S8 | Open | Out of Phase 1 scope |
+
 ## 6. Target architecture
 
 Target one deployable modular monolith with one Postgres, re-cut into three workspace packages with one-way dependencies, plus a desktop client over HTTPS. There is no queue service, cache, vector store or microservice. The concrete trigger for revisiting is a second server instance, and the first step then is Postgres job claiming, not Redis [A7].
@@ -298,6 +318,16 @@ Phase 1 is the bottleneck: identity, stable keys and the learner schema must lan
 | P1.4 | Learning-layer schema: move explanations, messages and attempts off the snapshot cascade; typed feedback FKs; tables for progress, bookmarks, learner position | T2 | Migrations; `ai/service.ts` inserts; `jobs/retention.ts` | P1.2, P1.3 | P2.1, P3.5, P3.7 | Retention deletes code but keeps learning history; feedback has no orphans | M | Yes |
 | P1.5 | Authorise snapshot reads (owner or signed share token) | S2 | `http/routes.ts` `loadUsableSnapshot` and read routes | P1.2 | P4.1 | Another user's snapshot ID returns 403 or 404; tests added | S | Yes |
 | P1.6 | Configurable API base URL and auth strategy in the client; CORS allowlist and desktop origin in the server | T6 | `client/src/api/client.ts`, `http/security.ts`, `app.ts` | P1.2 | P2.1, P4.1 | The web build works unchanged; a desktop-origin request authenticates with a token | M | Yes |
+
+**Phase 1 implementation notes (2026-11-12)** — decisions taken while implementing; none changes a task's scope:
+
+- **Credentials (P1.2):** email and password, hashed with Node's built-in scrypt; no external identity provider. Sessions are opaque 256-bit tokens stored only as SHA-256 hashes, with absolute expiry (`SESSION_TTL_DAYS`, default 30) and revocation (one session or all). Web sessions use an httpOnly `kyc_session` cookie; bearer tokens are for desktop and are bound to their transport. Email verification and password reset need an email service and are not built.
+- **Upgrade path (P1.2):** `owners` was renamed to `users` (ids unchanged). Registering from a browser with anonymous work upgrades that user in place. Signing in from a browser with anonymous work offers `POST /auth/claim`, which moves the work into the account in one transaction and needs both the account session and the browser's signed anonymous cookie. An anonymous cookie can never authenticate a registered user.
+- **Snapshot authorisation (P1.5):** strangers get 404 on read paths, the same as an unknown id, before any status check, so there is no existence or state oracle. The established 403 `NOT_OWNER` on mutation and AI routes is unchanged. Share tokens are HMAC-signed with a key derived from `COOKIE_SECRET` (HKDF), bound to one snapshot, read-only, at most 7 days, and revocable per snapshot (`snapshots.shares_revoked_at`, migration 008).
+- **Analysis runs (P1.3):** a run record is kept for every pipeline execution (succeeded or failed). Symbols and edges exist only for the snapshot's current run; a failed re-run leaves the previous good run and its rows in place. Pre-existing rows are backfilled as a `legacy` run with null keys (key version 0).
+- **PostgreSQL 15+** is now required: the learning layer's composite foreign keys use `ON DELETE SET NULL (column)`. PostgreSQL 14 reaches end of life in November 2026; CI uses 16.
+- **CORS (P1.6):** exact-origin allowlist (`CORS_ALLOWED_ORIGINS`), never `*`, never credentials. Allow-listed origins authenticate only by bearer token. Any other foreign `Origin` is refused, including on reads.
+- Every migration has an operator rollback script (`server/src/db/rollbacks/`), exercised by `server/tests/migrations.test.ts`.
 
 **Phase 2 — Experience and AI restructuring**
 

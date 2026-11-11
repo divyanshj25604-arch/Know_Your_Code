@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Verdict
 
 The AI layer is a well-guarded, single-service design with one provider interface, schema-enforced JSON output, reference verification and a daily spend cap. However, **no real provider has ever been exercised**: every behavioural test uses the deterministic `FakeLlm`, and the live Claude test was skipped for lack of a key (`docs/implementation/04_Testing_and_Measurements.md:51`). One configuration risk stands out. The strong tier (Claude Sonnet 5.5) runs with adaptive thinking on under small `max_tokens` caps (900–1,400), which can truncate JSON output. This is plausible from the API rules, not observed.

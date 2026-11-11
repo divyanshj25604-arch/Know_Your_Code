@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Verdict
 
 Know Your Code is a single-process modular monolith, and that is the right shape for the cloud MVP. No microservice split is justified by anything in the code. The analysis engine is already close to runtime-independent: it never touches Fastify or Postgres. Retrieval, AI and jobs, however, are written directly against `pg`. The ingestion boundary is well defended, and imported code is **never executed**. The main security and privacy gaps are access control on stored code (snapshot UUID as the only key), anonymous cookie identity, regex-only secret redaction before code is sent to the AI provider, and an unsafe default of `NODE_ENV=development`.

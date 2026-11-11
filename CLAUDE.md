@@ -12,20 +12,22 @@ learning levels: project understanding, application understanding, concept under
 interactive understanding, knowledge validation. Users can follow guided learning and also explore freely, and exploring
 must never reset their learning progress.
 
-## Source of truth (only these eight documents)
+## Source of truth (only these documents)
 
 All documentation lives in [`project-docs/`](project-docs/). Nothing else in the repo is authoritative documentation.
 
-| File                                                    | Use it for                                                                                                                                                     |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `00_Engineering_Decision_Document.md`                   | **Start here.** Decisions, component classification, six-level gap analysis, risk register, target architecture, phased roadmap (P0.1–P4.5), what not to build |
-| `01_Repository_Reconnaissance_Audit.md`                 | Repository map, stack, routes, tables, tests, dead code                                                                                                        |
-| `02_Ingestion_and_Static_Analysis_Audit.md`             | Ingestion pipeline, ts-morph analyser, symbols, edges, flow readiness                                                                                          |
-| `03_Database_and_Data_Model_Audit.md`                   | ER diagram (Mermaid), table catalogue, data lifecycle, schema recommendations                                                                                  |
-| `04_Context_Retrieval_Audit.md`                         | Request lifecycle, context-pack algorithm, evidence verification                                                                                               |
-| `05_AI_Layer_Audit.md`                                  | Providers, prompts, schemas, verification, cost, capability-registry recommendation                                                                            |
-| `06_Frontend_and_Product_Experience_Audit.md`           | Client architecture, components, state, desktop readiness                                                                                                      |
-| `07_Architecture_Security_and_Cloud_Readiness_Audit.md` | Module coupling, shared-core extraction, jobs, security findings, deployment checklist                                                                         |
+| File                                                    | Use it for                                                                                                                                                            |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `00_Engineering_Decision_Document.md`                   | **Start here.** Decisions, component classification, six-level gap analysis, risk register, target architecture, phased roadmap (P0.1–P4.5), what not to build        |
+| `01_Repository_Reconnaissance_Audit.md`                 | Repository map, stack, routes, tables, tests, dead code                                                                                                               |
+| `02_Ingestion_and_Static_Analysis_Audit.md`             | Ingestion pipeline, ts-morph analyser, symbols, edges, flow readiness                                                                                                 |
+| `03_Database_and_Data_Model_Audit.md`                   | ER diagram (Mermaid), table catalogue, data lifecycle, schema recommendations                                                                                         |
+| `04_Context_Retrieval_Audit.md`                         | Request lifecycle, context-pack algorithm, evidence verification                                                                                                      |
+| `05_AI_Layer_Audit.md`                                  | Providers, prompts, schemas, verification, cost, capability-registry recommendation                                                                                   |
+| `06_Frontend_and_Product_Experience_Audit.md`           | Client architecture, components, state, desktop readiness                                                                                                             |
+| `07_Architecture_Security_and_Cloud_Readiness_Audit.md` | Module coupling, shared-core extraction, jobs, security findings, deployment checklist                                                                                |
+| `08_Brand_Identity_Requirements.md`                     | **Authoritative brand requirement** (from `KnowYourCode-Brand-Kit-v1.0.pdf`): palette, type, logo rules, voice, tokens; audit of the current UI; brand-pass work list |
+| `09_Phase_1_Completion_Report.md`                       | What Phase 1 (and its Phase 0 prerequisites) changed, how it was verified, acceptance-criteria evidence, limitations and debt                                         |
 
 Diagrams are PNGs in `project-docs/images/`. The same documents also exist as Claude Docs (shareable copies); the files in
 `project-docs/` are canonical.
@@ -57,6 +59,14 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
 - Target packages: `@kyc/contracts` ← `@kyc/core` (new, runtime-free: analysis, retrieval planning, AI contracts, learning
   logic) ← `server` (cloud runtime). The client depends only on `contracts`.
 - `core` must never import Fastify, `pg`, `process.env` or HTTP errors. All SQL lives behind store interfaces in `server`.
+  Enforced by `packages/core/tsconfig.json` (no host typings) and `packages/core/tests/boundary.test.ts`.
+- Learning data references code by **stable symbol keys** (`symbols.symbol_key`, see
+  `packages/core/src/analysis/symbolKey.ts`), never by per-run row ids. Code rows expire; learning rows hang off the
+  durable `repositories` row (composite `(repository_id, user_id)` foreign keys).
+- Identity (P1.2): `users` (anonymous or registered, email + scrypt password), opaque session tokens stored hashed in
+  `user_sessions`; httpOnly cookie for the web, bearer token for desktop. Snapshot reads are owner-or-share-token
+  (P1.5); strangers get 404. Cross-origin access only for `CORS_ALLOWED_ORIGINS`, bearer-only (P1.6).
+- Product UI must follow `project-docs/08_Brand_Identity_Requirements.md`; the brand pass is a separate, approved task.
 - Reuse as-is: ingestion (`server/src/ingestion/*`), worker host (`analysis/runner.ts`), selection classifier, migrations,
   `FakeLlm`, UI primitives (`client/src/components/ui.tsx`).
 - Replace: anonymous `owners` identity, the fixed `buildContextPack` slot recipe, the five AI output schemas,
@@ -66,23 +76,27 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
 ## Repository layout (current code)
 
 - `packages/contracts/` — shared TS types, Zod schemas, error codes (`@kyc/contracts`).
-- `server/src/` — Fastify 5 API: `http/` (routes, SSE, owner cookie, security), `ingestion/` (GitHub URL, tarball,
-  extraction, filters), `analysis/` (ts-morph analyser, worker), `index/` (raw-SQL persistence), `retrieval/` (context pack),
-  `ai/` (providers, prompts, schemas, verifier, cost, `AiService`), `jobs/` (in-process queue, import pipeline,
-  retention), `db/` (pool, migration runner, SQL migrations), `privacy/` (redaction), `config/` (env).
+- `packages/core/` — runtime-free logic (`@kyc/core`): analyser, stable symbol keys, selection classifier, overview,
+  file filters, redaction, `KycError`. Its tests own the sample-repository fixtures (`packages/core/tests/fixtures`).
+- `server/src/` — Fastify 5 API: `http/` (routes, auth routes, SSE, snapshot access, CORS and security), `auth/`
+  (identity, sessions, passwords, share tokens, anonymous-work claim), `ingestion/` (GitHub URL, tarball, extraction),
+  `analysis/` (worker host only), `index/` (raw-SQL persistence incl. analysis runs), `retrieval/` (context pack),
+  `ai/` (providers, prompts, schemas, verifier, cost, `AiService`), `jobs/` (in-process queue, transactional import
+  pipeline, retention), `db/` (pool + `withTx`, migration runner, `migrations/`, operator `rollbacks/`), `config/`.
 - `server/tests/` — Vitest suites against a real Postgres, fixtures, fake GitHub, E2E server bootstrap.
-- `client/src/` — React 19 + Vite SPA: `pages/`, `components/`, `hooks/`, `api/client.ts`, `styles/`.
+- `client/src/` — React 19 + Vite SPA: `pages/`, `components/`, `hooks/`, `api/` (`createApiClient`, base URL and
+  auth strategy in `config.ts`), `styles/`.
 - `e2e/` — Playwright specs (`live.spec.ts` needs `LIVE=1` and an API key).
 - `scripts/` — smoke test and measurement scripts.
-- `project-docs/` — the eight source-of-truth documents.
+- `project-docs/` — the source-of-truth documents (00–09).
 
 ## Commands
 
 ```bash
 npm install
 npm run dev          # API :8080 + web :5173
-npm run check        # typecheck + lint + format check + tests (needs Postgres: createdb kyc_test)
-npm test             # server + client tests
+npm run check        # typecheck + lint + format check + tests (needs PostgreSQL >= 15: createdb kyc_test)
+npm test             # core + server + client tests
 npm run test:e2e     # Playwright, deterministic mode (fake AI, local GitHub stand-in)
 npm run test:live    # real GitHub; real Claude only if ANTHROPIC_API_KEY is set (costs money — ask first)
 npm run build        # client/dist + server/dist
@@ -92,27 +106,36 @@ npm run db:migrate   # apply SQL migrations
 
 ## Working conventions
 
-- Raw SQL via `pg`; forward-only migrations in `server/src/db/migrations/`. There is no Prisma.
+- Raw SQL via `pg`; forward-only migrations in `server/src/db/migrations/`, each with an operator rollback script in
+  `server/src/db/rollbacks/` (tested by `server/tests/migrations.test.ts`). There is no Prisma. PostgreSQL >= 15.
+- Multi-statement writes go through `withTx` (`db/pool.ts`).
 - Branch in use: `V1_KYC` (main branch for PRs: `main`). Do not commit or push unless asked.
 - Never read or print values from `.env`; refer to variables by name only.
 - Do not make billable AI calls (live tests, smoke `--ai`) without explicit approval.
-- Known traps: `NODE_ENV` defaults to `development` (risk S1); snapshot reads are not owner-checked (S2); no multi-statement
-  write is transactional (T9); the workspace trail truncates forward history (T4).
+- Known traps: the workspace trail truncates forward history (T4); real-model AI is still unverified (T1, P0.2);
+  object-method `qualifiedName` doubling (T15). Resolved in Phase 1: S1 (bundled build requires explicit
+  `NODE_ENV=production`), S2 (snapshot reads authorised), S3 (accounts), S6, S7, T2, T3, T6, T9, T13, T14.
+- The built server (`npm start`) refuses to start unless `NODE_ENV=production` is set; use `npm run dev` locally.
 
 ## Roadmap status
 
 Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Document.md`.
 
-| Phase                            | Tasks                                                                                                                  | Status      |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------- |
-| 0 — Safety and evidence baseline | P0.1 config, P0.2 live AI baseline, P0.3 test gaps, P0.4 transactional imports                                         | Not started |
-| 1 — Foundations                  | P1.1 core package, P1.2 identity, P1.3 stable keys, P1.4 learner schema, P1.5 snapshot authz, P1.6 API base URL + CORS | Not started |
-| 2 — Restructure                  | P2.1 learner state, P2.2 app shell, P2.3 AI registry, P2.4 retrieval planner                                           | Not started |
-| 3 — Six levels                   | P3.1–P3.7                                                                                                              | Not started |
-| 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | Not started |
+| Phase                            | Tasks                                                                                                                  | Status                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 0 — Safety and evidence baseline | P0.1 config, P0.2 live AI baseline, P0.3 test gaps, P0.4 transactional imports                                         | P0.1, P0.3, P0.4 done; **P0.2 not started** (needs approved spend)           |
+| 1 — Foundations                  | P1.1 core package, P1.2 identity, P1.3 stable keys, P1.4 learner schema, P1.5 snapshot authz, P1.6 API base URL + CORS | **Done** 2026-11-12, awaiting review (see `09_Phase_1_Completion_Report.md`) |
+| Brand pass (unscheduled)         | Implement `08_Brand_Identity_Requirements.md` section E                                                                | Not started; needs approval                                                  |
+| 2 — Restructure                  | P2.1 learner state, P2.2 app shell, P2.3 AI registry, P2.4 retrieval planner                                           | Not started                                                                  |
+| 3 — Six levels                   | P3.1–P3.7                                                                                                              | Not started                                                                  |
+| 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | Not started                                                                  |
 
 ## Changelog
 
 - 2026-11-12 — Created `project-docs/` with the eight audit and decision documents as the only source of truth; deleted the
   old `docs/` folder; replaced `README.md` with a pointer; pointed the Prettier and ESLint ignores at `project-docs/`;
   created this file.
+- 2026-11-12 — Phase 1 (P1.1–P1.6) and its prerequisites P0.1, P0.3, P0.4 implemented: `@kyc/core`, accounts and
+  sessions, stable symbol keys and analysis runs, learning-layer schema, snapshot read authorisation and share links,
+  configurable client API and CORS allowlist; migrations 004–008 with rollback scripts; PostgreSQL >= 15. Added
+  `08_Brand_Identity_Requirements.md` and `09_Phase_1_Completion_Report.md`.

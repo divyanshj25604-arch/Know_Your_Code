@@ -10,7 +10,7 @@ are `01`–`07` in the same folder. Agent and contributor rules are in [`CLAUDE.
 
 ## Quick start (current code, branch `V1_KYC`)
 
-Requirements: Node.js ≥ 20.12, PostgreSQL ≥ 14 with `pg_trgm` and `pgcrypto`.
+Requirements: Node.js ≥ 20.12, PostgreSQL ≥ 15 with `pg_trgm` and `pgcrypto`.
 
 ```bash
 npm install
@@ -19,4 +19,5 @@ npm run dev                       # API on :8080, web app on http://localhost:51
 npm run check                     # typecheck, lint, format check, unit and integration tests
 ```
 
-Production builds must set `NODE_ENV=production` explicitly (see risk S1 in the decision document).
+The built server (`npm start`) refuses to start unless `NODE_ENV=production` and `COOKIE_SECRET` are set (risk S1).
+Product UI follows [`project-docs/08_Brand_Identity_Requirements.md`](project-docs/08_Brand_Identity_Requirements.md).

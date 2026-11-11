@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Scope and headline
 
 The repository is a browser web app with one Fastify server, not the desktop-plus-cloud product the vision describes. There is no desktop shell (no Electron or Tauri), the "shared core" is a types-only package, and there are no missions, multi-step assessments or simulation modules.

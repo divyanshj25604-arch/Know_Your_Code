@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Verdict
 
 The frontend is a small, clean React 19 single-page app built around one screen: select code, read an explanation. Its leaf components (code viewer, file tree, relation list, UI primitives) are reusable. Its state model is the main blocker: the whole learning session is one in-memory history stack, which is lost on reload, and any new navigation after going back wipes the forward trail. That works against "exploration must not reset learning progress". Desktop packaging is feasible but needs real changes, because every API call is a same-origin relative URL authenticated by a `SameSite=Lax` cookie.

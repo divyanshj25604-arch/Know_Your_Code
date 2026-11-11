@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Verdict
 
 Ingestion is solid and should be kept. The analyser is a good compiler-backed base, but it only builds a one-hop symbol graph: it cannot yet trace an application flow from UI to database. Imports, cross-file calls through `require`/`import`, and JSX usage resolve with the TypeScript type checker. Interfaces, types, enums, properties, inheritance, HTTP client-to-endpoint links, router mount prefixes, middleware ordering and database access are not modelled.

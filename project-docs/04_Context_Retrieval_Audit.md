@@ -2,6 +2,8 @@
 
 *As of 2026-11-11 · branch `V1_KYC`, HEAD `b10a2f5`*
 
+> Point-in-time audit of `b10a2f5`. Findings resolved by Phase 1 (2026-11-12) are listed in [09_Phase_1_Completion_Report.md](09_Phase_1_Completion_Report.md); the current code is described there and in `CLAUDE.md`.
+
 ## Verdict
 
 Retrieval is a fixed, single-hop recipe, not a search or ranking engine. For any selection it sends the selected lines, the enclosing function, its one-hop relations, up to 5 callee definitions and 3 call sites, the file's imports and project facts, within a 6,000-token budget (8,000 for follow-ups). It never sends the whole repository. That makes it good at explaining one function in place and weak at anything spanning a flow, a component's wider connections or a concept across the codebase.
