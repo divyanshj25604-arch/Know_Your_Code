@@ -47,7 +47,15 @@ export class Pack {
   }
 
   /** Add numbered lines `from..to` (1-based, inclusive) of `path`, skipping lines already in the pack. */
-  snippet(name: string, path: string, allLines: string[], from: number, to: number, itemBudget: number, note = '') {
+  snippet(
+    name: string,
+    path: string,
+    allLines: string[],
+    from: number,
+    to: number,
+    itemBudget: number,
+    note = '',
+  ) {
     const a = Math.max(1, from);
     const b = Math.min(allLines.length, to);
     if (b < a) return;
@@ -86,7 +94,9 @@ export class Pack {
         last = n;
       }
       if (out.length === 0) break;
-      this.parts.push(`[${name}] file: ${path} lines ${sa}-${last}${note ? ` (${note})` : ''}\n${out.join('\n')}`);
+      this.parts.push(
+        `[${name}] file: ${path} lines ${sa}-${last}${note ? ` (${note})` : ''}\n${out.join('\n')}`,
+      );
       this.used += tokens;
       budget -= tokens;
       this.addRange(path, sa, last);

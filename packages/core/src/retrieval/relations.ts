@@ -18,7 +18,8 @@ function callerLabel(e: GraphEdgeRow): string {
   return who;
 }
 
-const via = (t: string): RelationItem['via'] => (t === 'calls' ? 'call' : t === 'references' ? 'reference' : 'route');
+const via = (t: string): RelationItem['via'] =>
+  t === 'calls' ? 'call' : t === 'references' ? 'reference' : 'route';
 
 export function importItems(rows: GraphEdgeRow[]): Relations['imports'] {
   return rows.map((e) => ({
@@ -85,7 +86,9 @@ export async function relationsOf(store: GraphStore, symbolId: string): Promise<
         path: e.source.path,
         line: e.line,
         reason:
-          e.reason === 'external_package' && e.targetExternal ? `external_package:${e.targetExternal}` : e.reason,
+          e.reason === 'external_package' && e.targetExternal
+            ? `external_package:${e.targetExternal}`
+            : e.reason,
       });
     }
   }

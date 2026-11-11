@@ -63,7 +63,11 @@ export class MemoryGraphStore implements GraphStore {
 
   async inbound(symbolId: string) {
     return this.edges
-      .filter((e) => e.targetKey === symbolId && (e.type === 'calls' || e.type === 'references' || e.type === 'route_handler'))
+      .filter(
+        (e) =>
+          e.targetKey === symbolId &&
+          (e.type === 'calls' || e.type === 'references' || e.type === 'route_handler'),
+      )
       .map((e) => this.row(e));
   }
 

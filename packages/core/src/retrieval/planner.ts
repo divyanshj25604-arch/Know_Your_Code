@@ -72,7 +72,11 @@ function keywords(question: string): string[] {
   return out.slice(0, 6);
 }
 
-function relationsText(rel: Relations | null, imports: Relations['imports'], fileAnalysable: boolean): string {
+function relationsText(
+  rel: Relations | null,
+  imports: Relations['imports'],
+  fileAnalysable: boolean,
+): string {
   const L: string[] = [];
   if (!rel) {
     L.push(
@@ -84,15 +88,28 @@ function relationsText(rel: Relations | null, imports: Relations['imports'], fil
     L.push(
       `Enclosing symbol: ${rel.symbol?.name ?? '?'} (${rel.symbol?.kind ?? '?'}) defined at ${rel.definedIn?.path}:${rel.definedIn?.line}`,
     );
-    const fmt = (i: { label: string; path: string; line: number; provenance: string; via: string; edgeId?: string }) =>
+    const fmt = (i: {
+      label: string;
+      path: string;
+      line: number;
+      provenance: string;
+      via: string;
+      edgeId?: string;
+    }) =>
       `- ${i.label} at ${i.path}:${i.line} [${i.provenance}; ${i.via}${i.edgeId ? `; edge ${i.edgeId}` : ''}]`;
-    L.push(rel.calledBy.length ? 'CALLED_BY / USED_BY:' : 'CALLED_BY / USED_BY: none found by static analysis');
+    L.push(
+      rel.calledBy.length ? 'CALLED_BY / USED_BY:' : 'CALLED_BY / USED_BY: none found by static analysis',
+    );
     L.push(...rel.calledBy.slice(0, 8).map(fmt));
     L.push(rel.calls.length ? 'CALLS:' : 'CALLS: none resolved to code in this repository');
     L.push(...rel.calls.slice(0, 10).map(fmt));
     if (rel.unresolved.length) {
       L.push('UNRESOLVED (could not be followed statically):');
-      L.push(...rel.unresolved.slice(0, 10).map((u) => `- ${u.label} at ${u.path}:${u.line} (reason: ${u.reason})`));
+      L.push(
+        ...rel.unresolved
+          .slice(0, 10)
+          .map((u) => `- ${u.label} at ${u.path}:${u.line} (reason: ${u.reason})`),
+      );
     }
   }
   const imps = imports.slice(0, 12);
@@ -100,7 +117,8 @@ function relationsText(rel: Relations | null, imports: Relations['imports'], fil
     L.push('FILE_IMPORTS:');
     L.push(
       ...imps.map(
-        (i) => `- ${i.label}${i.path ? ` -> ${i.path}` : i.external ? ' (external package)' : ''} (line ${i.line})`,
+        (i) =>
+          `- ${i.label}${i.path ? ` -> ${i.path}` : i.external ? ' (external package)' : ''} (line ${i.line})`,
       ),
     );
   }
@@ -130,11 +148,27 @@ export async function planContext(store: GraphStore, req: PlanRequest): Promise<
   const selLines = (await lines(sel.path)) ?? [];
 
   // 1. The selection ± 5 lines (for a flow: the start symbol's opening lines).
-  pack.snippet('SELECTED_CODE', sel.path, selLines, sel.startLine - 5, sel.endLine + 5, 1200, `selected lines ${sel.startLine}-${sel.endLine}`);
+  pack.snippet(
+    'SELECTED_CODE',
+    sel.path,
+    selLines,
+    sel.startLine - 5,
+    sel.endLine + 5,
+    1200,
+    `selected lines ${sel.startLine}-${sel.endLine}`,
+  );
 
   // 2. The enclosing symbol's body, when it adds more than the selection.
   if (sym && selLines.length && !(sel.startLine - 5 <= sym.startLine && sel.endLine + 5 >= sym.endLine)) {
-    pack.snippet('ENCLOSING_SYMBOL', sym.path, selLines, sym.startLine, sym.endLine, 1500, `${sym.kind} ${sym.name}`);
+    pack.snippet(
+      'ENCLOSING_SYMBOL',
+      sym.path,
+      selLines,
+      sym.startLine,
+      sym.endLine,
+      1500,
+      `${sym.kind} ${sym.name}`,
+    );
   }
 
   // 3. Verified one-hop relations, each with its edge id.
@@ -165,7 +199,15 @@ export async function planContext(store: GraphStore, req: PlanRequest): Promise<
       const tl = target ? await lines(target.path) : null;
       if (!target || !tl) continue;
       const before = pack.used;
-      pack.snippet('DEFINITION', target.path, tl, target.startLine, Math.min(target.endLine, target.startLine + 14), Math.min(defBudget, 400), `definition of ${target.name}`);
+      pack.snippet(
+        'DEFINITION',
+        target.path,
+        tl,
+        target.startLine,
+        Math.min(target.endLine, target.startLine + 14),
+        Math.min(defBudget, 400),
+        `definition of ${target.name}`,
+      );
       defBudget -= pack.used - before;
     }
     // 5. Callers: call site ± 3 lines (at most 3).
@@ -174,7 +216,15 @@ export async function planContext(store: GraphStore, req: PlanRequest): Promise<
       const cl = await lines(c.path);
       if (!cl) continue;
       const before = pack.used;
-      pack.snippet('CALL_SITE', c.path, cl, c.line - 3, c.line + 3, Math.min(callerBudget, 300), `${c.label} -> ${sym.name}`);
+      pack.snippet(
+        'CALL_SITE',
+        c.path,
+        cl,
+        c.line - 3,
+        c.line + 3,
+        Math.min(callerBudget, 300),
+        `${c.label} -> ${sym.name}`,
+      );
       callerBudget -= pack.used - before;
     }
     // 6. Callee signatures (at most 6).
@@ -279,11 +329,24 @@ async function planFlow(
           hop,
           edgeId: e.id,
           from: { id: from.id, name: from.name },
-          to: { id: target.id, key: target.key, name: target.name, path: target.path, line: target.startLine },
+          to: {
+            id: target.id,
+            key: target.key,
+            name: target.name,
+            path: target.path,
+            line: target.startLine,
+          },
           path: e.source.path,
           line: e.line,
         });
-        edges.set(e.id, { id: e.id, type: 'call', from: from.name, to: target.name, path: e.source.path, line: e.line });
+        edges.set(e.id, {
+          id: e.id,
+          type: 'call',
+          from: from.name,
+          to: target.name,
+          path: e.source.path,
+          line: e.line,
+        });
       }
     }
     // Definitions for this hop share what is left of the budget with later hops.
@@ -293,7 +356,15 @@ async function planFlow(
       const tl = await lines(t.path);
       if (!tl || hopBudget <= 40) continue;
       const before = pack.used;
-      pack.snippet(`FLOW_HOP_${hop}`, t.path, tl, t.startLine, Math.min(t.endLine, t.startLine + 14), Math.min(hopBudget, 400), `definition of ${t.name}`);
+      pack.snippet(
+        `FLOW_HOP_${hop}`,
+        t.path,
+        tl,
+        t.startLine,
+        Math.min(t.endLine, t.startLine + 14),
+        Math.min(hopBudget, 400),
+        `definition of ${t.name}`,
+      );
       hopBudget -= pack.used - before;
     }
     frontier = next;
@@ -301,7 +372,12 @@ async function planFlow(
   if (flow.length) {
     pack.text(
       'FLOW',
-      flow.map((s) => `- hop ${s.hop}: ${s.from.name} calls ${s.to.name} at ${s.path}:${s.line} [verified; edge ${s.edgeId}]`).join('\n'),
+      flow
+        .map(
+          (s) =>
+            `- hop ${s.hop}: ${s.from.name} calls ${s.to.name} at ${s.path}:${s.line} [verified; edge ${s.edgeId}]`,
+        )
+        .join('\n'),
       500,
     );
   } else {
