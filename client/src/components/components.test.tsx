@@ -85,6 +85,7 @@ describe('RelationList', () => {
   const rel: Relations = {
     symbol: {
       id: 's',
+      key: 'a.js#function:login',
       name: 'login',
       kind: 'function',
       signature: 'function login()',

@@ -25,7 +25,14 @@ export function Workspace() {
   const initial = useRef({
     path: params.get('path'),
     line: params.get('line') ? Number(params.get('line')) : null,
+    // A read-only share link (/r/:id?share=…). Captured once: later URL updates (path, line) must not drop it.
+    share: params.get('share'),
   });
+
+  useEffect(() => {
+    api.setShareToken(initial.current.share);
+    return () => api.setShareToken(null);
+  }, []);
 
   useEffect(() => {
     api

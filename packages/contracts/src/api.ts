@@ -58,7 +58,13 @@ export interface FileView {
 export type SelectionKind = 'function' | 'identifier' | 'block' | 'call' | 'import' | 'reference';
 
 export interface SymbolRef {
+  /** Per-analysis-run row id: valid for this snapshot's current run only. */
   id: string;
+  /**
+   * Stable symbol key: the same for unchanged code across re-imports and re-analysis. Use it for anything that must
+   * outlive a run (bookmarks, progress). Null only for rows analysed before keys existed.
+   */
+  key: string | null;
   name: string;
   kind: string;
   path: string;
@@ -95,6 +101,7 @@ export interface UnresolvedItem {
 export interface Relations {
   symbol: {
     id: string;
+    key: string | null;
     name: string;
     kind: string;
     signature: string | null;
@@ -140,6 +147,35 @@ export interface HealthView {
   github: 'token' | 'anonymous';
   queueDepth: number;
   version: string;
+}
+
+export interface AccountView {
+  id: string;
+  kind: 'anonymous' | 'registered';
+  email: string | null;
+}
+
+/** Response to register and login. `token` is present only for `transport: 'bearer'`, exactly once. */
+export interface AuthSessionResponse {
+  user: AccountView;
+  expiresAt: string;
+  token?: string;
+  /** Anonymous work in this browser that can be added to the account with POST /auth/claim. */
+  claimable: { repositories: number } | null;
+}
+
+export interface MeResponse {
+  user: AccountView | null;
+}
+
+export interface ClaimResponse {
+  claimed: { repositories: number; snapshots: number; explanations: number };
+}
+
+/** A read-only link to one snapshot: send as the `x-kyc-share` header or `?share=` query parameter. */
+export interface ShareTokenResponse {
+  token: string;
+  expiresAt: string;
 }
 
 export type { Depth, Selection };
