@@ -1,19 +1,26 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from '../db/pool';
 import { deleteExpired } from '../index/snapshots';
+import { deleteEndedSessions } from '../auth/store';
 
-/** Delete expired snapshots (7-day retention, docs/10) and trim operational tables that must not keep data forever. */
+/**
+ * Delete expired code (7-day snapshot retention) and trim operational tables that must not keep data forever.
+ * Learning history (explanations, progress, bookmarks, positions) is kept for registered accounts.
+ */
 export async function runRetention(db: Db, log: FastifyBaseLogger): Promise<{ snapshots: number }> {
   const snapshots = await deleteExpired(db);
   // Cost and event rows carry no code, but are kept 90 days only.
   await db.query(`DELETE FROM llm_calls WHERE created_at < now() - interval '90 days'`);
   await db.query(`DELETE FROM events WHERE created_at < now() - interval '90 days'`);
   await db.query(`DELETE FROM deletion_log WHERE deleted_at < now() - interval '90 days'`);
-  // Owners with nothing left and no recent activity.
+  // Anonymous users idle for 30 days whose code has expired are removed with their learning history: an anonymous
+  // identity lives in one browser cookie and cannot be recovered once lost. Registered accounts are never removed.
   await db.query(
-    `DELETE FROM owners o WHERE o.last_seen_at < now() - interval '30 days'
-       AND NOT EXISTS (SELECT 1 FROM repositories r WHERE r.owner_id = o.id)`,
+    `DELETE FROM users u WHERE u.kind = 'anonymous' AND u.last_seen_at < now() - interval '30 days'
+       AND NOT EXISTS (
+         SELECT 1 FROM snapshots s JOIN repositories r ON r.id = s.repository_id WHERE r.owner_id = u.id)`,
   );
+  await deleteEndedSessions(db);
   if (snapshots) log.info({ snapshots }, 'retention: deleted expired snapshots');
   return { snapshots };
 }

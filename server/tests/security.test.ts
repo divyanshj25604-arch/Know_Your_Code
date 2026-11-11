@@ -87,14 +87,14 @@ describe('owner cookie', () => {
     expect(sc).toMatch(/SameSite=Lax/i);
     expect(sc).toMatch(/kyc_owner=[0-9a-f-]{36}\./); // value.signature
     // A forged (unsigned) id for another owner is treated as no cookie: a fresh owner is minted.
-    const victim = (await h.db.query('SELECT id FROM owners LIMIT 1')).rows[0].id as string;
+    const victim = (await h.db.query('SELECT id FROM users LIMIT 1')).rows[0].id as string;
     const forged = await h.app.inject({
       method: 'GET',
       url: '/api/v1/my/snapshots',
       headers: { cookie: `kyc_owner=${victim}` },
     });
     expect(forged.headers['set-cookie']).toBeTruthy();
-    expect((await h.db.query('SELECT count(*)::int AS n FROM owners')).rows[0].n).toBe(2);
+    expect((await h.db.query('SELECT count(*)::int AS n FROM users')).rows[0].n).toBe(2);
   });
 });
 

@@ -7,10 +7,12 @@ import path from 'node:path';
 import { ERROR_CODES, type HealthView } from '@kyc/contracts';
 import type { Config } from './config/env';
 import type { Db } from './db/pool';
-import { AppError } from './http/errors';
+import { KycError } from '@kyc/core';
+import { errorBody, httpStatusOf } from './http/errors';
 import { createServices, type Services } from './services';
 import { registerApiRoutes } from './http/routes';
 import { registerAiRoutes } from './http/aiRoutes';
+import { registerAuthRoutes } from './http/authRoutes';
 import { registerSecurity } from './http/security';
 
 export interface AppDeps {
@@ -19,6 +21,8 @@ export interface AppDeps {
   overrides?: {
     github?: import('./ingestion/github').GitHubClient;
     llm?: import('./ai/llm').LlmClient | null;
+    /** Where logs go (tests capture them to prove secrets are never logged). Default: stdout. */
+    logStream?: NodeJS.WritableStream;
   };
 }
 
@@ -34,6 +38,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: config.LOG_LEVEL,
+      ...(deps.overrides?.logStream ? { stream: deps.overrides.logStream } : {}),
       // Never log request bodies/headers: they can carry repository URLs, questions, or cookies.
       redact: ['req.headers.cookie', 'req.headers.authorization'],
       serializers: {
@@ -46,6 +51,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.decorate('deps', deps);
   const services = createServices(config, deps.db, app.log, deps.overrides);
   app.decorate('services', services);
+  app.decorateRequest('kycCrossOrigin', false);
   app.addHook('onClose', async () => {
     await services.runner.stop();
   });
@@ -57,8 +63,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
 
   app.setErrorHandler((err, req, reply) => {
-    if (err instanceof AppError) {
-      return reply.status(err.httpStatus).send(err.toBody());
+    if (err instanceof KycError) {
+      return reply.status(httpStatusOf(err)).send(errorBody(err));
     }
     const e = err as { statusCode?: number; validation?: unknown; code?: string };
     if (e.statusCode === 429) {
@@ -111,6 +117,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     };
   });
 
+  registerAuthRoutes(app, services);
   registerApiRoutes(app, services);
   registerAiRoutes(app, services);
 

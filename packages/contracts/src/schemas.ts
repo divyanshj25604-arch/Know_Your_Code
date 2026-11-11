@@ -193,3 +193,34 @@ export const CONCEPT_VOCAB = [
   'streams',
   'testing',
 ] as const;
+
+// ---------------------------------------------------------------- accounts (P1.2)
+
+/** Emails are compared case-insensitively: always trimmed and lower-cased before storage or lookup. */
+export const EmailSchema = z.string().trim().toLowerCase().email().max(254);
+/** Length bounds only (NIST SP 800-63B): long passphrases welcome; the upper bound caps hashing cost. */
+export const PasswordSchema = z.string().min(10, 'use at least 10 characters').max(128);
+/**
+ * How the session credential is delivered. `cookie` (web, default): an httpOnly cookie the page cannot read.
+ * `bearer` (desktop and other non-browser-origin clients): the token is returned once in the response body and sent
+ * back as `Authorization: Bearer <token>`.
+ */
+export const TokenTransportSchema = z.enum(['cookie', 'bearer']);
+export type TokenTransport = z.infer<typeof TokenTransportSchema>;
+
+export const RegisterRequestSchema = z.object({
+  email: EmailSchema,
+  password: PasswordSchema,
+  transport: TokenTransportSchema.default('cookie'),
+});
+export type RegisterRequest = z.input<typeof RegisterRequestSchema>;
+
+export const LoginRequestSchema = z.object({
+  email: EmailSchema,
+  // Not re-validated against the policy: a policy change must never lock out an existing account.
+  password: z.string().min(1).max(128),
+  transport: TokenTransportSchema.default('cookie'),
+});
+export type LoginRequest = z.input<typeof LoginRequestSchema>;
+
+export const LogoutRequestSchema = z.object({ all: z.boolean().default(false) }).default({});

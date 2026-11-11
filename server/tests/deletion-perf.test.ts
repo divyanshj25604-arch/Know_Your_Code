@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { AnalysisResult, EdgeRow, SymbolRow } from '../src/analysis/types';
+import type { AnalysisResult, EdgeRow, SymbolRow } from '@kyc/core';
 import type { Db } from '../src/db/pool';
 import type { ExtractedFile } from '../src/ingestion/extract';
 import { insertFiles } from '../src/index/files';
-import { createSnapshot, deleteRepository, ensureOwner, upsertRepository } from '../src/index/snapshots';
+import { createAnonymousUser } from '../src/auth/store';
+import { createSnapshot, deleteRepository, upsertRepository } from '../src/index/snapshots';
 import { persistAnalysis } from '../src/index/symbols';
+import { startRun } from '../src/index/runs';
 import { testDb } from './helpers';
 
 let db: Db;
@@ -78,17 +80,17 @@ function syntheticGraph(files: number, perFile: number): { files: ExtractedFile[
 
 async function load(owner: string, name: string, files: number, perFile: number) {
   const repo = await upsertRepository(db, owner, 'acme', name);
-  const snap = await createSnapshot(db, repo, null, null, 7);
+  const snap = (await createSnapshot(db, repo, null, null, 7)).id;
   const g = syntheticGraph(files, perFile);
   const ids = await insertFiles(db, snap, g.files);
-  await persistAnalysis(db, snap, ids, g.result);
+  await persistAnalysis(db, snap, await startRun(db, snap), ids, g.result);
   return repo;
 }
 
 describe('deleting a repository while other repositories are stored', () => {
   it('stays fast because foreign-key columns are indexed, and leaves nothing behind', async () => {
-    await db.query('TRUNCATE owners, deletion_log CASCADE');
-    const owner = await ensureOwner(db, null);
+    await db.query('TRUNCATE users, deletion_log CASCADE');
+    const owner = await createAnonymousUser(db);
     // Other users' data. Without FK indexes every cascaded check scans ALL of it (quadratic), so size matters here.
     for (let i = 0; i < 8; i++) await load(owner, `other${i}`, 60, 100); // 8 x (6,000 symbols, 12,000 edges)
     const target = await load(owner, 'target', 60, 100);
@@ -107,6 +109,6 @@ describe('deleting a repository while other repositories are stored', () => {
     expect(ms).toBeLessThan(2000);
     expect((await db.query(`SELECT count(*)::int AS n FROM symbols`)).rows[0].n).toBe(8 * 6000); // only the others remain
     expect((await db.query(`SELECT count(*)::int AS n FROM edges`)).rows[0].n).toBe(8 * 12000);
-    await db.query('TRUNCATE owners CASCADE');
+    await db.query('TRUNCATE users CASCADE');
   }, 120_000);
 });

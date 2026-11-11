@@ -6,6 +6,8 @@ import { RateLimiter } from './http/limiter';
 import { JobRunner } from './jobs/runner';
 import { AiService } from './ai/service';
 import { createLlm, type LlmClient } from './ai/llm';
+import { IdentityService } from './auth/identity';
+import { ShareTokens } from './auth/shareTokens';
 
 export interface Services {
   config: Config;
@@ -14,6 +16,8 @@ export interface Services {
   limiter: RateLimiter;
   runner: JobRunner;
   ai: AiService;
+  identity: IdentityService;
+  shares: ShareTokens;
 }
 
 export function createServices(
@@ -24,7 +28,9 @@ export function createServices(
 ): Services {
   const github = overrides.github ?? new GitHubClient(config);
   const limiter = new RateLimiter(!config.RATE_LIMIT_DISABLED);
-  const svc = { config, db, github, limiter } as Services;
+  const identity = new IdentityService(db, config, log);
+  const shares = new ShareTokens(config.cookieSecret);
+  const svc = { config, db, github, limiter, identity, shares } as Services;
   const llm = overrides.llm !== undefined ? overrides.llm : createLlm(config, log);
   svc.ai = new AiService(config, db, llm, log);
   svc.runner = new JobRunner(

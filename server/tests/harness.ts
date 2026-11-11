@@ -46,7 +46,7 @@ export class Harness {
       repos?: Record<string, { fixture: string; extra?: TarEntry[] }>;
     } = {},
   ) {
-    await this.db.query('TRUNCATE owners, deletion_log, events, llm_calls CASCADE');
+    await this.db.query('TRUNCATE users, deletion_log, events, llm_calls CASCADE');
     this.cookie = '';
     for (const [name, r] of Object.entries(opts.repos ?? {})) {
       const [o, n] = name.split('/') as [string, string];

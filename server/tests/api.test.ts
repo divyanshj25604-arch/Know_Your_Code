@@ -39,7 +39,7 @@ afterAll(async () => {
   await db.end();
 });
 beforeEach(async () => {
-  await db.query('TRUNCATE owners, deletion_log, events, llm_calls CASCADE');
+  await db.query('TRUNCATE users, deletion_log, events, llm_calls CASCADE');
   cookie = '';
   gh.add(
     'acme',
@@ -271,18 +271,22 @@ describe('import pipeline over real HTTP + extraction + analysis', () => {
   });
 
   it('two imports of the same commit racing do not 500: the second reuses the first snapshot', async () => {
-    const { createSnapshot, ensureOwner, upsertRepository } = await import('../src/index/snapshots');
-    const owner = await ensureOwner(db, null);
+    const { createSnapshot, upsertRepository } = await import('../src/index/snapshots');
+    const { createAnonymousUser } = await import('../src/auth/store');
+    const owner = await createAnonymousUser(db);
     const repo = await upsertRepository(db, owner, 'acme', 'race');
     const sha = 'a'.repeat(40);
     const [a, b] = await Promise.all([
       createSnapshot(db, repo, null, sha, 7),
       createSnapshot(db, repo, null, sha, 7),
     ]);
-    expect(a).toBe(b);
+    expect(a.id).toBe(b.id);
+    // Exactly one of the two creates the snapshot; the other sees it and must not run it again.
+    expect([a.outcome, b.outcome].sort()).toEqual(['created', 'existing']);
     expect((await db.query('SELECT count(*)::int AS n FROM snapshots')).rows[0].n).toBe(1);
+    expect((await db.query('SELECT count(*)::int AS n FROM jobs')).rows[0].n).toBe(1);
     // Different commits are independent.
-    expect(await createSnapshot(db, repo, null, 'b'.repeat(40), 7)).not.toBe(a);
+    expect((await createSnapshot(db, repo, null, 'b'.repeat(40), 7)).id).not.toBe(a.id);
   });
 
   it('validates ids and rejects malformed bodies without leaking internals', async () => {
