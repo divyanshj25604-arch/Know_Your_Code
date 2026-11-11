@@ -4,6 +4,7 @@ import { loadConfig } from '../src/config/env';
 import { buildApp } from '../src/app';
 import { startFakeGitHub, fixtureTarball } from './fake-github';
 import { buildTarGz } from './tar-helper';
+import { buildTestWorker } from './build-worker';
 
 /**
  * Starts the real app for browser E2E, in deterministic mode: real HTTP download + extraction + analysis +
@@ -54,10 +55,12 @@ async function main() {
     RATE_LIMIT_DISABLED: 'true',
     DAILY_SPEND_CAP_USD: '100',
     MAX_ANALYSABLE_FILES: '60',
+    // Production always analyses in a worker thread, so the harness compiles the real worker entry.
+    ANALYSIS_WORKER_PATH: await buildTestWorker(),
   } as NodeJS.ProcessEnv);
   const db = createPool(dbUrl);
   await migrate(db);
-  await db.query('TRUNCATE owners, deletion_log, events, llm_calls CASCADE');
+  await db.query('TRUNCATE users, deletion_log, events, llm_calls CASCADE');
   const app = await buildApp({ config, db });
   await app.listen({ port, host: '127.0.0.1' });
   console.log(`e2e server ready on ${port}`);

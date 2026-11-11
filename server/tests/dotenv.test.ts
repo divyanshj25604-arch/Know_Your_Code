@@ -17,13 +17,22 @@ describe('loadDotEnv', () => {
     expect(process.env.KYC_TEST_B).toBe('from-env');
   });
 
-  it('finds the repo-root .env when started from a workspace directory', () => {
+  it('finds the repo-root .env from a workspace directory only when asked to (source runs)', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'kyc-env-'));
     writeFileSync(path.join(root, '.env'), 'KYC_TEST_A=root\n');
     const sub = path.join(root, 'server');
     mkdirSync(sub);
-    expect(loadDotEnv(sub)).toBe(path.join(root, '.env'));
+    expect(loadDotEnv(sub, { searchParent: true })).toBe(path.join(root, '.env'));
     expect(process.env.KYC_TEST_A).toBe('root');
+  });
+
+  it('never reads a parent-directory .env by default (deployed builds, risk S7)', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'kyc-env-'));
+    writeFileSync(path.join(root, '.env'), 'KYC_TEST_A=stray\n');
+    const sub = path.join(root, 'deploy');
+    mkdirSync(sub);
+    expect(loadDotEnv(sub)).toBeNull();
+    expect(process.env.KYC_TEST_A).toBeUndefined();
   });
 
   it('does nothing when there is no .env', () => {

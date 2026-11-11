@@ -1,21 +1,29 @@
 import { loadConfig, ConfigError } from './config/env';
 import { loadDotEnv } from './config/dotenv';
+import { IS_BUNDLED } from './config/build';
+import { resolveWorkerPath } from './analysis/runner';
 import { createPool } from './db/pool';
 import { migrate } from './db/migrate';
 import { buildApp } from './app';
 import { scheduleRetention } from './jobs/retention';
 
 async function main() {
-  loadDotEnv();
+  loadDotEnv(process.cwd(), { searchParent: !IS_BUNDLED });
   let config;
   try {
-    config = loadConfig();
+    config = loadConfig(process.env, { bundled: IS_BUNDLED });
   } catch (e) {
     if (e instanceof ConfigError) {
       console.error(e.message);
       process.exit(1);
     }
     throw e;
+  }
+  if (config.ANALYSIS_MODE === 'worker' && !resolveWorkerPath(config.ANALYSIS_WORKER_PATH)) {
+    console.error(
+      'Invalid configuration:\n  - the analysis worker script was not found; build with "npm run build" or set ANALYSIS_WORKER_PATH',
+    );
+    process.exit(1);
   }
   const db = createPool(config.DATABASE_URL);
   try {
