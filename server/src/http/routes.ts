@@ -7,15 +7,18 @@ import {
   ResolveRequestSchema,
   type ImportResponse,
   type Overview,
+  type ShareTokenResponse,
 } from '@kyc/contracts';
-import { AppError } from './errors';
-import { getOwner } from './owner';
+import { KycError } from '@kyc/core';
+import { parse } from './validate';
+import { assertUsable, authorizeSnapshotOwner, authorizeSnapshotRead } from './snapshotAccess';
 import { parseRepoUrl } from '../ingestion/url';
 import {
   createSnapshot,
   deleteRepository,
   findReusable,
   getSnapshot,
+  revokeShares,
   toView,
   upsertRepository,
   type SnapshotRow,
@@ -24,37 +27,32 @@ import { buildTree, getFile, listFilePaths } from '../index/files';
 import { getRelations, getSymbolSnapshot } from '../index/symbols';
 import { resolveSelection } from '../index/resolve';
 import type { Services } from '../services';
+import { MAX_SHARE_TTL_HOURS } from '../auth/shareTokens';
 
 const IdParam = z.object({ id: z.string().uuid() });
 const FileQuery = z.object({ path: z.string().min(1).max(1024) });
+const ShareRequest = z
+  .object({ ttlHours: z.number().int().min(1).max(MAX_SHARE_TTL_HOURS).default(72) })
+  .default({});
 
-function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): T {
-  const r = schema.safeParse(value);
-  if (!r.success)
-    throw new AppError('INVALID_REQUEST', 'That request was not valid.', {
-      issues: r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
-    });
-  return r.data;
-}
-
+/**
+ * A snapshot whose code can be served, for callers that have already authorised the request some other way (the
+ * AI routes check ownership of the explanation first). Read routes use authorizeSnapshotRead instead.
+ */
 export async function loadUsableSnapshot(svc: Services, id: string): Promise<SnapshotRow> {
   const snap = await getSnapshot(svc.db, id);
-  if (!snap) throw new AppError('NOT_FOUND');
-  if (snap.expiresAt.getTime() < Date.now()) throw new AppError('SNAPSHOT_EXPIRED');
-  if (snap.status === 'failed')
-    throw new AppError((snap.errorCode as 'INDEX_FAILED') ?? 'INDEX_FAILED', snap.errorMessage ?? undefined);
-  if (snap.status !== 'ready' && snap.status !== 'ready_partial') throw new AppError('SNAPSHOT_NOT_READY');
-  return snap;
+  if (!snap) throw new KycError('NOT_FOUND');
+  return assertUsable(snap);
 }
 
 export function registerApiRoutes(app: FastifyInstance, svc: Services) {
-  const { db, config, limiter, github, runner } = svc;
+  const { db, config, limiter, github, runner, identity } = svc;
   const ip = (req: FastifyRequest) => req.ip;
 
   app.post('/api/v1/repositories', async (req, reply): Promise<ImportResponse> => {
     const body = parse(ImportRequestSchema, req.body);
     const repo = parseRepoUrl(body.url, body.ref);
-    const ownerId = await getOwner(db, config, req, reply);
+    const { userId: ownerId } = await identity.require(req, reply);
     limiter.check('import:owner', ownerId, config.RATE_IMPORTS_PER_HOUR, 3600_000);
     limiter.check('import:ip', ip(req), config.RATE_IMPORTS_PER_HOUR * 4, 3600_000);
 
@@ -69,46 +67,52 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
         return { repositoryId, snapshotId: reuse, status: snap?.status ?? 'ready', reused: true };
       }
     }
-    const snapshotId = await createSnapshot(db, repositoryId, repo.ref ?? null, sha, config.RETENTION_DAYS);
-    runner.enqueue(snapshotId);
+    const created = await createSnapshot(db, repositoryId, repo.ref ?? null, sha, config.RETENTION_DAYS);
     reply.status(202);
-    return { repositoryId, snapshotId, status: 'queued', reused: false };
+    if (created.outcome === 'existing') {
+      // A concurrent request for the same commit got there first: report its state, never run it twice.
+      const snap = await getSnapshot(db, created.id);
+      return { repositoryId, snapshotId: created.id, status: snap?.status ?? 'queued', reused: true };
+    }
+    runner.enqueue(created.id);
+    return { repositoryId, snapshotId: created.id, status: 'queued', reused: false };
   });
 
-  app.get('/api/v1/snapshots/:id', async (req) => {
+  // ---------------------------------------------------------------- snapshot reads: owner or share token (P1.5)
+
+  app.get('/api/v1/snapshots/:id', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
-    const snap = await getSnapshot(db, id);
-    if (!snap) throw new AppError('NOT_FOUND');
+    const { snap } = await authorizeSnapshotRead(svc, req, reply, id);
     return toView(snap);
   });
 
-  app.get('/api/v1/snapshots/:id/overview', async (req) => {
+  app.get('/api/v1/snapshots/:id/overview', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
-    const snap = await loadUsableSnapshot(svc, id);
+    const snap = assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
     const ov = snap.overview as (Omit<Overview, 'summary'> & { summary?: Overview['summary'] }) | null;
-    if (!ov) throw new AppError('SNAPSHOT_NOT_READY');
+    if (!ov) throw new KycError('SNAPSHOT_NOT_READY');
     return { ...ov, summary: ov.summary ?? { status: 'unavailable', provenance: 'explained' } };
   });
 
-  app.get('/api/v1/snapshots/:id/tree', async (req) => {
+  app.get('/api/v1/snapshots/:id/tree', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
-    await loadUsableSnapshot(svc, id);
+    assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
     return { root: buildTree(await listFilePaths(db, id)) };
   });
 
-  app.get('/api/v1/snapshots/:id/file', async (req) => {
+  app.get('/api/v1/snapshots/:id/file', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
     const { path } = parse(FileQuery, req.query);
-    await loadUsableSnapshot(svc, id);
+    assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
     const f = await getFile(db, id, path);
-    if (!f) throw new AppError('FILE_NOT_FOUND');
+    if (!f) throw new KycError('FILE_NOT_FOUND');
     return f;
   });
 
-  app.post('/api/v1/snapshots/:id/resolve', async (req) => {
+  app.post('/api/v1/snapshots/:id/resolve', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
     const { selection } = parse(ResolveRequestSchema, req.body);
-    await loadUsableSnapshot(svc, id);
+    assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
     const {
       text: _t,
       identifier: _i,
@@ -118,23 +122,45 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
     return out;
   });
 
-  app.get('/api/v1/symbols/:id/relations', async (req) => {
+  /** Indirect path: a symbol id names its snapshot, which is authorised exactly like a direct read. */
+  app.get('/api/v1/symbols/:id/relations', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
     const snapshotId = await getSymbolSnapshot(db, id);
-    if (!snapshotId) throw new AppError('NOT_FOUND');
-    await loadUsableSnapshot(svc, snapshotId);
+    if (!snapshotId) throw new KycError('NOT_FOUND');
+    assertUsable((await authorizeSnapshotRead(svc, req, reply, snapshotId)).snap);
     const rel = await getRelations(db, snapshotId, id);
-    if (!rel) throw new AppError('NOT_FOUND');
+    if (!rel) throw new KycError('NOT_FOUND');
     return rel;
+  });
+
+  /** Owner only: a read-only link to this snapshot, valid for up to 7 days or until revoked. */
+  app.post('/api/v1/snapshots/:id/share-tokens', async (req, reply): Promise<ShareTokenResponse> => {
+    const { id } = parse(IdParam, req.params);
+    const { ttlHours } = parse(ShareRequest, req.body ?? {});
+    const snap = assertUsable(await authorizeSnapshotOwner(svc, req, reply, id));
+    limiter.check('share', snap.ownerId, 60, 3600_000);
+    // Stamp strictly after the last revocation, so a link created right after revoking is never born revoked.
+    const issuedAt = Math.max(Date.now(), (snap.sharesRevokedAt?.getTime() ?? 0) + 1);
+    const { token, expiresAt } = svc.shares.issue(snap.id, ttlHours, issuedAt);
+    reply.status(201);
+    return { token, expiresAt: expiresAt.toISOString() };
+  });
+
+  /** Owner only: invalidate every share link issued for this snapshot so far. */
+  app.delete('/api/v1/snapshots/:id/share-tokens', async (req, reply) => {
+    const { id } = parse(IdParam, req.params);
+    const snap = await authorizeSnapshotOwner(svc, req, reply, id);
+    await revokeShares(db, snap.id);
+    return reply.status(204).send();
   });
 
   app.delete('/api/v1/repositories/:id', async (req, reply) => {
     const { id } = parse(IdParam, req.params);
-    const ownerId = await getOwner(db, config, req, reply);
+    const { userId: ownerId } = await identity.require(req, reply);
     limiter.check('delete', ownerId, 20, 3600_000);
     const r = await db.query<{ owner_id: string }>('SELECT owner_id FROM repositories WHERE id=$1', [id]);
-    if (!r.rows[0]) throw new AppError('NOT_FOUND');
-    if (r.rows[0].owner_id !== ownerId) throw new AppError('NOT_OWNER');
+    if (!r.rows[0]) throw new KycError('NOT_FOUND');
+    if (r.rows[0].owner_id !== ownerId) throw new KycError('NOT_OWNER');
     const deletedSnapshots = await deleteRepository(db, id, 'user');
     reply.status(202);
     return { deletedSnapshots };
@@ -142,7 +168,7 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
 
   /** "Continue with <repo>" on the landing page (docs/05 §15): the caller's own live snapshots only. */
   app.get('/api/v1/my/snapshots', async (req, reply) => {
-    const ownerId = await getOwner(db, config, req, reply);
+    const { userId: ownerId } = await identity.require(req, reply);
     const r = await db.query<{
       id: string;
       repository_id: string;
@@ -170,7 +196,7 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
 
   app.post('/api/v1/feedback', async (req, reply: FastifyReply) => {
     const b = parse(FeedbackRequestSchema, req.body);
-    const ownerId = await getOwner(db, config, req, reply);
+    const { userId: ownerId } = await identity.require(req, reply);
     limiter.check('feedback', ownerId, 300, 3600_000);
     // Only the owner of the thing being rated can rate it (also rejects ids that do not exist).
     const owned = await db.query(
@@ -181,18 +207,30 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
           : 'SELECT 1 FROM check_attempts c JOIN explanations e ON e.id=c.explanation_id WHERE c.id=$1 AND e.owner_id=$2',
       [b.targetId, ownerId],
     );
-    if (!owned.rowCount) throw new AppError('NOT_FOUND');
+    if (!owned.rowCount) throw new KycError('NOT_FOUND');
+    // Exactly one typed foreign key is set (the database enforces it); target_id is derived from it.
     await db.query(
-      `INSERT INTO feedback (owner_id, target_type, target_id, rating, reason, comment) VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (owner_id, target_type, target_id) DO UPDATE SET rating=EXCLUDED.rating, reason=EXCLUDED.reason, comment=EXCLUDED.comment`,
-      [ownerId, b.targetType, b.targetId, b.rating, b.reason ?? null, b.comment ?? null],
+      `INSERT INTO feedback (owner_id, target_type, explanation_id, message_id, check_attempt_id, rating, reason, comment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (owner_id, target_type, target_id)
+       DO UPDATE SET rating=EXCLUDED.rating, reason=EXCLUDED.reason, comment=EXCLUDED.comment`,
+      [
+        ownerId,
+        b.targetType,
+        b.targetType === 'explanation' ? b.targetId : null,
+        b.targetType === 'message' ? b.targetId : null,
+        b.targetType === 'check' ? b.targetId : null,
+        b.rating,
+        b.reason ?? null,
+        b.comment ?? null,
+      ],
     );
     return reply.status(204).send();
   });
 
   app.post('/api/v1/events', async (req, reply: FastifyReply) => {
     const b = parse(EventsRequestSchema, req.body);
-    const ownerId = await getOwner(db, config, req, reply);
+    const { userId: ownerId } = await identity.require(req, reply);
     limiter.check('events', ownerId, 600, 3600_000);
     for (const e of b.events) {
       await db.query('INSERT INTO events (owner_id, name, props) VALUES ($1,$2,$3)', [
