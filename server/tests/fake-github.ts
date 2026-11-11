@@ -39,7 +39,11 @@ export async function startFakeGitHub(): Promise<FakeGitHub> {
   const port = (server.address() as AddressInfo).port;
   return {
     base: `http://127.0.0.1:${port}`,
-    add: (o, r, t) => repos.set(`${o}/${r}`, t),
+    add: (o, r, t) => {
+      // Registering a repository makes it serve again, clearing any failure set by an earlier test.
+      failures.delete(`${o}/${r}`);
+      repos.set(`${o}/${r}`, t);
+    },
     fail: (o, r, status, headers = {}) => failures.set(`${o}/${r}`, { status, headers }),
     requests,
     close: () => new Promise((r) => server.close(() => r())),

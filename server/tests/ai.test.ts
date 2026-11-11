@@ -35,6 +35,10 @@ const REPOS = {
         content: '// FAKE_MALFORMED\nfunction m() {\n  return 3;\n}\nmodule.exports = { m };\n',
       },
       {
+        name: 'src/notjson.js',
+        content: '// FAKE_NOT_JSON\nfunction n() {\n  return 3;\n}\nmodule.exports = { n };\n',
+      },
+      {
         name: 'src/refuse.js',
         content: '// FAKE_REFUSE\nfunction r() {\n  return 3;\n}\nmodule.exports = { r };\n',
       },
@@ -168,6 +172,22 @@ describe('POST /explanations (SSE)', () => {
     expect(JSON.stringify(r.events)).not.toMatch(/zod|stack|ModelOutputError/);
     const status = (await h.db.query('SELECT status FROM llm_calls ORDER BY id')).rows.map((x) => x.status);
     expect(status[0]).toMatch(/^invalid/);
+  });
+
+  it('falls back to the plain-text reply, labelled as unstructured, when the model never returns JSON', async () => {
+    const snapshotId = await ready();
+    const r = await h.sse('/api/v1/explanations', {
+      snapshotId,
+      selection: { path: 'src/notjson.js', startLine: 2, startCol: 9, endLine: 2, endCol: 10 },
+    });
+    expect(names(r.events)).toEqual(['relations', 'meta', 'section', 'done']);
+    expect(llm.calls).toHaveLength(2); // one retry with the schema reminder, then the fallback
+    const what = r.events.find((e) => e.event === 'section')!.data;
+    expect(what).toMatchObject({ name: 'what', text: 'not json', refs: [] });
+    const done = last(r.events, 'done')!.data as { uncertainty: { text: string }[] };
+    expect(done.uncertainty[0]?.text).toMatch(/wasn't in the expected format/);
+    // The degraded answer is stored like any other, so it can be restored and rated.
+    expect((await h.db.query('SELECT count(*)::int AS n FROM explanations')).rows[0].n).toBe(1);
   });
 
   it.each([

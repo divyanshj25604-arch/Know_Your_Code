@@ -1,9 +1,9 @@
 import type { FileView, TreeNode } from '@kyc/contracts';
-import type { Db } from '../db/pool';
+import type { Db, Queryable } from '../db/pool';
 import type { ExtractedFile } from '../ingestion/extract';
 
 export async function insertFiles(
-  db: Db,
+  db: Queryable,
   snapshotId: string,
   files: ExtractedFile[],
 ): Promise<Map<string, string>> {
@@ -32,7 +32,7 @@ export async function insertFiles(
 }
 
 export async function listFilePaths(
-  db: Db,
+  db: Queryable,
   snapshotId: string,
 ): Promise<{ path: string; analysable: boolean; language: string | null }[]> {
   const r = await db.query<{ path: string; analysable: boolean; language: string | null }>(

@@ -1,6 +1,7 @@
 import type { Db } from '../db/pool';
 import type { FastifyBaseLogger } from 'fastify';
 import { runImport, type ImportDeps } from './importJob';
+import { failInterruptedRuns } from '../index/runs';
 
 /**
  * In-process job queue with durable state in Postgres (docs/07 ADR-06). `queued`/`running` jobs are re-queued
@@ -8,7 +9,8 @@ import { runImport, type ImportDeps } from './importJob';
  */
 export class JobRunner {
   private queue: string[] = [];
-  private running = 0;
+  /** Snapshots being processed right now; a snapshot is never run twice at the same time. */
+  private active = new Set<string>();
   private stopped = false;
   private idleResolvers: (() => void)[] = [];
 
@@ -20,16 +22,18 @@ export class JobRunner {
   ) {}
 
   get depth(): number {
-    return this.queue.length + this.running;
+    return this.queue.length + this.active.size;
   }
 
   enqueue(snapshotId: string) {
-    if (this.stopped || this.queue.includes(snapshotId)) return;
+    if (this.stopped || this.queue.includes(snapshotId) || this.active.has(snapshotId)) return;
     this.queue.push(snapshotId);
     this.pump();
   }
 
   async recover(): Promise<number> {
+    // Runs left "running" by a process that died can never finish; their snapshots are re-queued below.
+    await failInterruptedRuns(this.db);
     const r = await this.db.query<{ snapshot_id: string }>(
       `UPDATE jobs SET state='queued', attempts = attempts + 1, updated_at=now()
        WHERE state IN ('queued','running') AND attempts < 3 RETURNING snapshot_id`,
@@ -46,15 +50,15 @@ export class JobRunner {
   }
 
   private pump() {
-    while (this.running < this.concurrency && this.queue.length > 0) {
+    while (this.active.size < this.concurrency && this.queue.length > 0) {
       const id = this.queue.shift()!;
-      this.running++;
+      this.active.add(id);
       void this.db
         .query(`UPDATE jobs SET state='running', updated_at=now() WHERE snapshot_id=$1`, [id])
         .then(() => runImport(this.deps(), id))
         .catch((e) => this.log.error({ err: (e as Error).message }, 'job crashed'))
         .finally(() => {
-          this.running--;
+          this.active.delete(id);
           if (this.depth === 0) this.idleResolvers.splice(0).forEach((r) => r());
           this.pump();
         });
