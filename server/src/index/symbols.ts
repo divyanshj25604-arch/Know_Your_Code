@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { Relations, RelationItem, SymbolRef } from '@kyc/contracts';
-import type { Db } from '../db/pool';
-import type { AnalysisResult } from '../analysis/types';
+import type { Db, Queryable } from '../db/pool';
+import type { AnalysisResult } from '@kyc/core';
 
 const BATCH = 500;
 
+/**
+ * Insert one run's symbols and edges. Symbol rows get fresh per-run UUIDs; their stable identity is `symbol_key`
+ * (SymbolRow.key from @kyc/core). Call inside the content transaction after the run's files are inserted.
+ */
 export async function persistAnalysis(
-  db: Db,
+  db: Queryable,
   snapshotId: string,
+  runId: string,
   fileIds: Map<string, string>,
   result: AnalysisResult,
 ): Promise<{ symbols: number; edges: number }> {
@@ -17,12 +22,13 @@ export async function persistAnalysis(
   for (let i = 0; i < result.symbols.length; i += BATCH) {
     const c = result.symbols.slice(i, i + BATCH);
     await db.query(
-      `INSERT INTO symbols (id, snapshot_id, file_id, parent_symbol_id, name, qualified_name, kind, tags, exported, signature,
-                            start_line, start_col, end_line, end_col)
-       SELECT id, $1, file_id, parent_id, name, qn, kind, COALESCE(string_to_array(NULLIF(tags,''), ','), '{}'), exported, sig, sl, sc, el, ec
+      `INSERT INTO symbols (id, snapshot_id, analysis_run_id, file_id, parent_symbol_id, name, qualified_name, kind, tags,
+                            exported, signature, start_line, start_col, end_line, end_col, symbol_key)
+       SELECT id, $1, $15, file_id, parent_id, name, qn, kind, COALESCE(string_to_array(NULLIF(tags,''), ','), '{}'), exported,
+              sig, sl, sc, el, ec, skey
        FROM unnest($2::uuid[], $3::uuid[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::text[], $9::bool[], $10::text[],
-                   $11::int[], $12::int[], $13::int[], $14::int[])
-            AS t(id, file_id, parent_id, name, qn, kind, tags, exported, sig, sl, sc, el, ec)`,
+                   $11::int[], $12::int[], $13::int[], $14::int[], $16::text[])
+            AS t(id, file_id, parent_id, name, qn, kind, tags, exported, sig, sl, sc, el, ec, skey)`,
       [
         snapshotId,
         c.map((s) => idByKey.get(s.key)),
@@ -38,6 +44,8 @@ export async function persistAnalysis(
         c.map((s) => s.startCol),
         c.map((s) => s.endLine),
         c.map((s) => s.endCol),
+        runId,
+        c.map((s) => s.key),
       ],
     );
   }
@@ -46,9 +54,9 @@ export async function persistAnalysis(
   for (let i = 0; i < edges.length; i += BATCH) {
     const c = edges.slice(i, i + BATCH);
     await db.query(
-      `INSERT INTO edges (snapshot_id, type, source_symbol_id, source_file_id, target_symbol_id, target_file_id, target_external,
-                          line, provenance, reason, meta)
-       SELECT $1, type, src, sf, tgt, tf, ext, line, prov, reason, meta::jsonb
+      `INSERT INTO edges (snapshot_id, analysis_run_id, type, source_symbol_id, source_file_id, target_symbol_id, target_file_id,
+                          target_external, line, provenance, reason, meta)
+       SELECT $1, $12, type, src, sf, tgt, tf, ext, line, prov, reason, meta::jsonb
        FROM unnest($2::text[], $3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::text[], $8::int[], $9::text[], $10::text[], $11::text[])
             AS t(type, src, sf, tgt, tf, ext, line, prov, reason, meta)`,
       [
@@ -63,6 +71,7 @@ export async function persistAnalysis(
         c.map((e) => e.provenance),
         c.map((e) => e.reason),
         c.map((e) => JSON.stringify(e.meta)),
+        runId,
       ],
     );
   }
@@ -71,6 +80,7 @@ export async function persistAnalysis(
 
 interface SymbolDbRow {
   id: string;
+  symbol_key: string | null;
   name: string;
   qualified_name: string;
   kind: string;
@@ -87,12 +97,13 @@ interface SymbolDbRow {
 }
 
 const SYMBOL_SELECT = `
-  SELECT s.id, s.name, s.qualified_name, s.kind, s.signature, f.path, s.start_line, s.start_col, s.end_line, s.end_col,
+  SELECT s.id, s.symbol_key, s.name, s.qualified_name, s.kind, s.signature, f.path, s.start_line, s.start_col, s.end_line, s.end_col,
          s.tags, s.exported, s.file_id, s.parent_symbol_id
   FROM symbols s JOIN files f ON f.id = s.file_id`;
 
 const toRef = (r: SymbolDbRow): SymbolRef => ({
   id: r.id,
+  key: r.symbol_key,
   name: r.name,
   kind: r.kind,
   path: r.path,
@@ -281,6 +292,7 @@ export async function getRelations(db: Db, snapshotId: string, symbolId: string)
   return {
     symbol: {
       id: sym.id,
+      key: sym.key ?? null,
       name: sym.name,
       kind: sym.kind,
       signature: sym.signature ?? null,
@@ -322,7 +334,7 @@ export async function getFileImports(
 
 /** Most-used functions/classes by inbound call + reference + route edges (starting points, docs/01 FR-OVR-03). */
 export async function topSymbols(
-  db: Db,
+  db: Queryable,
   snapshotId: string,
   limit: number,
 ): Promise<{ id: string; name: string; path: string; line: number; uses: number }[]> {
@@ -351,7 +363,7 @@ export async function topSymbols(
 }
 
 export async function counts(
-  db: Db,
+  db: Queryable,
   snapshotId: string,
 ): Promise<{ symbols: number; edges: number; unresolved: number }> {
   const r = await db.query<{ symbols: number; edges: number; unresolved: number }>(
