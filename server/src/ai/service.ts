@@ -13,7 +13,7 @@ import {
 } from '@kyc/contracts';
 import type { Config } from '../config/env';
 import type { Db } from '../db/pool';
-import { AppError } from '../http/errors';
+import { KycError } from '@kyc/core';
 import { buildContextPack, type ContextPack } from '../retrieval/context';
 import { getFileContent } from '../index/files';
 import { resolveSelection, type ResolvedSelection } from '../index/resolve';
@@ -87,7 +87,7 @@ export class AiService {
   }
 
   private requireLlm(): LlmClient {
-    if (!this.llm) throw new AppError('AI_NOT_CONFIGURED');
+    if (!this.llm) throw new KycError('AI_NOT_CONFIGURED');
     return this.llm;
   }
 
@@ -136,7 +136,7 @@ export class AiService {
           outputTokens: null,
           costUsd: null,
           totalMs: null,
-          status: e instanceof AppError ? e.code : 'error',
+          status: e instanceof KycError ? e.code : 'error',
           cacheHit: false,
         });
         throw e;
@@ -157,7 +157,7 @@ export class AiService {
           status: 'refusal',
           cacheHit: false,
         });
-        throw new AppError('AI_ERROR', "Couldn't explain this selection. Try a smaller selection.");
+        throw new KycError('AI_ERROR', "Couldn't explain this selection. Try a smaller selection.");
       }
       if (out.stopReason === 'max_tokens') this.log.warn({ task: o.task }, 'model output truncated');
       let value: T | null = null;
@@ -188,7 +188,7 @@ export class AiService {
     }
     const fb = o.fallback?.(lastText);
     if (fb) return { value: fb, model, degraded: true };
-    throw new AppError('AI_ERROR', "Couldn't explain this selection. Try a smaller selection.");
+    throw new KycError('AI_ERROR', "Couldn't explain this selection. Try a smaller selection.");
   }
 
   // ------------------------------------------------------------------ explanations
@@ -345,13 +345,17 @@ export class AiService {
           verified = v2;
         }
       } catch (e) {
-        this.log.warn({ code: e instanceof AppError ? e.code : 'error' }, 'strong-tier regeneration skipped');
+        this.log.warn({ code: e instanceof KycError ? e.code : 'error' }, 'strong-tier regeneration skipped');
       }
     }
     const explanationId = randomUUID();
-    await this.db.query(
-      `INSERT INTO explanations (id, snapshot_id, owner_id, parent_id, cache_key, selection, kind, depth, symbol_id, body, prompt_version, model, refs_stripped)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    // The repository and commit are copied from the snapshot so the explanation stays meaningful after retention
+    // deletes the snapshot; the symbol is recorded by its stable key as well as by this run's row id.
+    const inserted = await this.db.query(
+      `INSERT INTO explanations (id, snapshot_id, owner_id, parent_id, cache_key, selection, kind, depth, symbol_id, body,
+                                 prompt_version, model, refs_stripped, symbol_key, repository_id, commit_sha)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, s.repository_id, s.commit_sha
+       FROM snapshots s WHERE s.id = $2`,
       [
         explanationId,
         p.snapshotId,
@@ -366,8 +370,11 @@ export class AiService {
         PROMPT_VERSION,
         model,
         verified.stats.stripped,
+        p.resolved.symbol?.key ?? null,
       ],
     );
+    // The snapshot was deleted while the model was answering: there is nothing left to attach the answer to.
+    if (!inserted.rowCount) throw new KycError('SNAPSHOT_EXPIRED');
     if (verified.stats.stripped) {
       await this.db
         .query(
@@ -416,10 +423,14 @@ export class AiService {
 
   // ------------------------------------------------------------------ thread messages
 
+  /**
+   * An explanation the caller owns whose code is still stored. Explanations outlive their snapshot (learning
+   * history is kept after retention deletes code), but continuing one needs the code: SNAPSHOT_EXPIRED otherwise.
+   */
   private async loadExplanation(ownerId: string, explanationId: string) {
     const r = await this.db.query<{
       id: string;
-      snapshot_id: string;
+      snapshot_id: string | null;
       owner_id: string;
       selection: Selection;
       depth: Depth;
@@ -431,10 +442,12 @@ export class AiService {
       [explanationId],
     );
     const row = r.rows[0];
-    if (!row) throw new AppError('NOT_FOUND');
+    if (!row) throw new KycError('NOT_FOUND');
     if (row.owner_id !== ownerId)
-      throw new AppError('NOT_OWNER', 'Only the browser that created this explanation can continue it.');
-    return row;
+      throw new KycError('NOT_OWNER', 'Only the account that created this explanation can continue it.');
+    const snapshotId = row.snapshot_id;
+    if (!snapshotId) throw new KycError('SNAPSHOT_EXPIRED');
+    return { ...row, snapshot_id: snapshotId };
   }
 
   async prepareMessage(ownerId: string, explanationId: string) {
@@ -533,7 +546,7 @@ export class AiService {
     const conceptId = req.conceptId ?? '';
     const label = CONCEPT_LABELS[conceptId] ?? conceptId.replace(/^other:/, '');
     if (!CONCEPT_LABELS[conceptId] && !conceptId.startsWith('other:'))
-      throw new AppError('INVALID_REQUEST', 'Unknown concept.');
+      throw new KycError('INVALID_REQUEST', 'Unknown concept.');
     const cachedConcept = await this.db.query<{ id: string; body: ConceptBody }>(
       `SELECT m.id, m.body FROM messages m JOIN explanations e ON e.id = m.explanation_id
        WHERE e.snapshot_id=$1 AND e.symbol_id IS NOT DISTINCT FROM $2 AND m.intent='concept' AND m.body->>'concept' = $3 LIMIT 1`,
@@ -631,7 +644,7 @@ export class AiService {
     const body: CheckBody = { ...value, answerRefs: verifyRefs(value.answerRefs, pack.ranges, stats) };
     // A check whose answer cannot be tied to the shown code is not answerable from the code (docs/09 §9): discard it.
     if (body.answerRefs.length === 0 || value.correctIndex === undefined || value.correctIndex > 3)
-      throw new AppError('AI_ERROR', "Couldn't make a good question for this selection.");
+      throw new KycError('AI_ERROR', "Couldn't make a good question for this selection.");
     const r = await this.db.query<{ id: string }>(
       `INSERT INTO check_attempts (explanation_id, question) VALUES ($1,$2) RETURNING id`,
       [explanationId, JSON.stringify(body)],
@@ -650,8 +663,8 @@ export class AiService {
       [checkId],
     );
     const row = r.rows[0];
-    if (!row) throw new AppError('NOT_FOUND');
-    if (row.owner_id !== ownerId) throw new AppError('NOT_OWNER');
+    if (!row) throw new KycError('NOT_FOUND');
+    if (row.owner_id !== ownerId) throw new KycError('NOT_OWNER');
     const q = row.question;
     const correct = answerIndex === q.correctIndex;
     const result = { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex };
