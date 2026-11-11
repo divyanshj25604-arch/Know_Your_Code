@@ -181,3 +181,18 @@ export interface ShareTokenResponse {
 }
 
 export type { Depth, Selection };
+
+export interface LearnerPositionView {
+  path: string | null;
+  symbolKey: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  commitSha: string | null;
+  state: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface LearnerPositionsResponse {
+  learning: LearnerPositionView | null;
+  exploration: LearnerPositionView | null;
+}

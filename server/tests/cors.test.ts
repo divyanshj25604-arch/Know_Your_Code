@@ -33,7 +33,7 @@ describe('CORS allowlist (acceptance: P1.6)', () => {
     const res = await preflight(DESKTOP);
     expect(res.statusCode).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBe(DESKTOP);
-    expect(res.headers['access-control-allow-methods']).toBe('GET, POST, DELETE');
+    expect(res.headers['access-control-allow-methods']).toBe('GET, POST, PUT, DELETE');
     expect(res.headers['access-control-allow-headers']).toBe(
       'authorization, content-type, accept, x-kyc-share',
     );

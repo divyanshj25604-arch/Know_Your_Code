@@ -224,3 +224,36 @@ export const LoginRequestSchema = z.object({
 export type LoginRequest = z.input<typeof LoginRequestSchema>;
 
 export const LogoutRequestSchema = z.object({ all: z.boolean().default(false) }).default({});
+
+// ---------------------------------------------------------------- learner position (P2.1)
+
+/** Guided learning and free exploration keep separate positions, so exploring never moves the learning position. */
+export const LearnerTrackSchema = z.enum(['learning', 'exploration']);
+export type LearnerTrack = z.infer<typeof LearnerTrackSchema>;
+
+const MAX_POSITION_STATE_BYTES = 48 * 1024;
+
+export const LearnerPositionSchema = z
+  .object({
+    path: z.string().min(1).max(1024).nullable().default(null),
+    symbolKey: z.string().min(1).max(4096).nullable().default(null),
+    startLine: z.number().int().min(1).nullable().default(null),
+    endLine: z.number().int().min(1).nullable().default(null),
+    commitSha: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .nullable()
+      .default(null),
+    /** Versioned client workspace state (the branching trail). */
+    state: z.record(z.unknown()).default({}),
+  })
+  .refine((p) => (p.startLine === null) === (p.endLine === null), {
+    message: 'startLine and endLine go together',
+  })
+  .refine((p) => p.startLine === null || p.endLine === null || p.endLine >= p.startLine, {
+    message: 'endLine precedes startLine',
+  })
+  .refine((p) => JSON.stringify(p.state).length <= MAX_POSITION_STATE_BYTES, {
+    message: 'state is too large',
+  });
+export type LearnerPositionInput = z.input<typeof LearnerPositionSchema>;

@@ -13,6 +13,7 @@ import { createServices, type Services } from './services';
 import { registerApiRoutes } from './http/routes';
 import { registerAiRoutes } from './http/aiRoutes';
 import { registerAuthRoutes } from './http/authRoutes';
+import { registerLearningRoutes } from './http/learningRoutes';
 import { registerSecurity } from './http/security';
 
 export interface AppDeps {
@@ -119,6 +120,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   registerAuthRoutes(app, services);
   registerApiRoutes(app, services);
+  registerLearningRoutes(app, services);
   registerAiRoutes(app, services);
 
   const staticDir = path.resolve(config.STATIC_DIR ?? path.resolve(process.cwd(), 'client/dist'));
