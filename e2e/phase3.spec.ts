@@ -158,7 +158,7 @@ test.describe('P3.2 request flows and P3.6 walkthrough', () => {
 });
 
 test.describe('P3.7 learning paths', () => {
-  test('a path with a mission, a lesson and a knowledge check is completed and recorded', async ({
+  test('a path with a mission, lessons and a knowledge check is completed and recorded', async ({
     page,
   }) => {
     await openWorkspace(page);
@@ -181,9 +181,15 @@ test.describe('P3.7 learning paths', () => {
     await mission.getByRole('button', { name: 'Mark this place' }).click();
     await expect(player.getByText('Found it.')).toBeVisible();
 
-    // Lesson: real code opens in the viewer.
+    // Lessons: real code opens in the viewer.
     await player.getByRole('button', { name: 'Next item' }).click();
-    const lesson = player.getByRole('group', { name: 'Lesson: What happens on POST /auth/login' });
+    const reach = player.getByRole('group', { name: 'Lesson: How POST /auth/login reaches its handler' });
+    await reach.getByRole('button', { name: /Open express\.json\(\)/ }).click();
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/app.js');
+    await reach.getByRole('button', { name: 'Mark lesson complete' }).click();
+    await expect(player.getByText('Lesson complete.')).toBeVisible();
+    await player.getByRole('button', { name: 'Next item' }).click();
+    const lesson = player.getByRole('group', { name: 'Lesson: What login does' });
     await lesson.getByRole('button', { name: /Open findUserByEmail/ }).click();
     await expect(page.locator('.viewer-head .mono')).toHaveText('src/services/userService.js');
     await lesson.getByRole('button', { name: 'Mark lesson complete' }).click();

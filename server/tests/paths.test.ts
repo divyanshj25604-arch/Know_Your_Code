@@ -16,7 +16,7 @@ const itemUrl = (snap: string, path: string, item: string) =>
   `/api/v1/snapshots/${snap}/paths/${encodeURIComponent(path)}/items/${encodeURIComponent(item)}`;
 
 describe('learning paths (P3.7)', () => {
-  it('generates project, application and concept paths, each with a lesson, a mission and a check, without answers', async () => {
+  it('generates project, application and concept paths, each with lessons, a mission and a check, without answers', async () => {
     const d = new Device(() => h.app);
     const { snapshotId } = await d.importRepo('acme/notes-api');
     const res = await d.get(`/api/v1/snapshots/${snapshotId}/paths`);
@@ -28,14 +28,15 @@ describe('learning paths (P3.7)', () => {
       ['path:concepts', 'concept', 'not_started'],
     ]);
     for (const p of view.paths)
-      expect(p.items.map((i) => i.kind).sort()).toEqual(['check', 'lesson', 'mission']);
+      expect(p.items.map((i) => i.kind).sort()).toEqual(['check', 'lesson', 'lesson', 'mission']);
     const app = view.paths[1]!;
     expect(app.title).toBe('Follow a request: POST /auth/login');
-    expect(app.items[2]!.question).toBe('While handling POST /auth/login, which function does login call?');
-    expect(app.items[2]!.options).toContain('findUserByEmail');
+    expect(app.items.find((i) => i.kind === 'check')!.question).toBe(
+      'While handling POST /auth/login, which function does login call?',
+    );
+    expect(app.items.find((i) => i.kind === 'check')!.options).toContain('findUserByEmail');
     // Lessons point at real code.
-    const lesson = app.items.find((i) => i.kind === 'lesson')!;
-    expect(lesson.blocks).toEqual(
+    expect(app.items.flatMap((i) => i.blocks ?? [])).toEqual(
       expect.arrayContaining([
         { type: 'code', path: 'src/controllers/authController.js', line: 3, label: 'Open login' },
       ]),
@@ -46,13 +47,13 @@ describe('learning paths (P3.7)', () => {
     expect((await new Device(() => h.app).get(`/api/v1/snapshots/${snapshotId}/paths`)).statusCode).toBe(404);
   });
 
-  it('a path with a lesson, a mission and a check is completed, graded on the server and recorded', async () => {
+  it('a path with lessons, a mission and a check is completed, graded on the server and recorded', async () => {
     const d = new Device(() => h.app);
     const { snapshotId, repositoryId } = await d.importRepo('acme/notes-api');
     const content = (await pathContent(h.db, snapshotId)).find((p) => p.id === 'path:application')!;
     const mission = content.items.find((i) => i.kind === 'mission') as MissionContent;
     const check = content.items.find((i) => i.kind === 'check') as CheckContent;
-    const lesson = content.items.find((i) => i.kind === 'lesson')!;
+    const [lesson, lesson2] = content.items.filter((i) => i.kind === 'lesson');
     const post = (item: string, body: unknown) => d.post(itemUrl(snapshotId, content.id, item), body);
 
     // A wrong place does not complete the mission, but counts as an attempt.
@@ -68,8 +69,10 @@ describe('learning paths (P3.7)', () => {
     expect(r).toMatchObject({ correct: true, itemStatus: 'completed', pathStatus: 'started' });
     expect(r.refs).toEqual([{ path: 'src/controllers/authController.js', line: 3 }]);
 
-    r = (await post(lesson.id, { kind: 'lesson' })).json();
-    expect(r).toMatchObject({ correct: true, itemStatus: 'completed', pathStatus: 'started' });
+    for (const l of [lesson!, lesson2!]) {
+      r = (await post(l.id, { kind: 'lesson' })).json();
+      expect(r).toMatchObject({ correct: true, itemStatus: 'completed', pathStatus: 'started' });
+    }
 
     const wrong = (check.correctIndex + 1) % check.options.length;
     r = (await post(check.id, { kind: 'check', answerIndex: wrong })).json();
@@ -95,13 +98,16 @@ describe('learning paths (P3.7)', () => {
         attempts: 3,
         done: true,
       },
-      {
-        subject_kind: 'lesson',
-        subject_key: `path:application/${lesson.id}`,
-        status: 'completed',
-        attempts: 0,
-        done: true,
-      },
+      ...[lesson!, lesson2!]
+        .map((l) => `path:application/${l.id}`)
+        .sort()
+        .map((k) => ({
+          subject_kind: 'lesson',
+          subject_key: k,
+          status: 'completed',
+          attempts: 0,
+          done: true,
+        })),
       {
         subject_kind: 'mission',
         subject_key: `path:application/${mission.id}`,

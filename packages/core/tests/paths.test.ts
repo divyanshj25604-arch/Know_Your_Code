@@ -112,7 +112,8 @@ describe('learning paths (P3.7)', () => {
   it('builds project, application and concept paths, each with a lesson, a mission and a check', () => {
     const paths = buildLearningPaths(inputs);
     expect(paths.map((p) => p.id)).toEqual(['path:project', 'path:application', 'path:concepts']);
-    for (const p of paths) expect(p.items.map((i) => i.kind).sort()).toEqual(['check', 'lesson', 'mission']);
+    for (const p of paths)
+      expect(p.items.map((i) => i.kind).sort()).toEqual(['check', 'lesson', 'lesson', 'mission']);
     const project = paths[0]!;
     const check = project.items.find((i) => i.kind === 'check')!;
     if (check.kind !== 'check') throw new Error();
@@ -127,7 +128,7 @@ describe('learning paths (P3.7)', () => {
     expect(appCheck.options).toEqual(expect.arrayContaining(['normalise']));
     expect(appCheck.options).not.toContain('login');
     expect(appCheck.options).not.toContain('GET /health');
-    const lesson = app.items.find((i) => i.kind === 'lesson')!;
+    const lesson = app.items.find((i) => i.id === 'lesson:flow:POST /auth/login')!;
     if (lesson.kind !== 'lesson') throw new Error();
     expect(lesson.blocks).toContainEqual({
       type: 'text',

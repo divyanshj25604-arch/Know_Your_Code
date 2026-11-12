@@ -125,6 +125,23 @@ function choice(
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 
+/** Which module imports from which, strongest first, from the verified import edges. */
+function dependencyBlocks(a: ArchitectureView, nameOf: Map<string, string>): LessonBlock[] {
+  if (a.dependencies.length === 0)
+    return [{ type: 'text', text: 'No module imports from another one: each part stands on its own.' }];
+  const deps = [...a.dependencies].sort((x, y) => y.imports - x.imports || (x.from < y.from ? -1 : 1));
+  return [
+    {
+      type: 'text',
+      text: 'A module depends on another when its files import from it. Reading a codebase in that order, from the modules nothing depends on down to the ones everything uses, follows how a request travels.',
+    },
+    ...deps.slice(0, 12).map((d): LessonBlock => ({
+      type: 'text',
+      text: `${nameOf.get(d.from) ?? d.from} imports from ${nameOf.get(d.to) ?? d.to} (${plural(d.imports, 'import')}).`,
+    })),
+  ];
+}
+
 function projectPath(i: PathInputs): LearningPathContent | null {
   const a = i.architecture;
   if (!a.available || a.modules.length < 2) return null;
@@ -207,7 +224,17 @@ function projectPath(i: PathInputs): LearningPathContent | null {
     level: 'project',
     title: 'How this project is organised',
     summary: 'Learn the modules of the codebase and how they depend on each other.',
-    items: [{ kind: 'lesson', id: 'lesson:modules', title: 'The modules', blocks }, mission, check],
+    items: [
+      { kind: 'lesson', id: 'lesson:modules', title: 'The modules', blocks },
+      {
+        kind: 'lesson',
+        id: 'lesson:module-dependencies',
+        title: 'How the modules depend on each other',
+        blocks: dependencyBlocks(a, nameOf),
+      },
+      mission,
+      check,
+    ],
   };
 }
 
@@ -237,21 +264,33 @@ function applicationPath(i: PathInputs): LearningPathContent | null {
     accept: [{ path: handler.path, startLine: handler.startLine, endLine: handler.endLine }],
     answer: { path: handler.path, line: handler.startLine },
   };
-  const blocks: LessonBlock[] = [
-    {
-      type: 'text',
-      text: `This is the path a ${f.method} request to ${f.routePath ?? 'this route'} takes, found by static analysis (nothing was run). Steps marked "not followed" could not be traced and say why.`,
-    },
-  ];
-  f.steps.forEach((s, n) => {
+  const handlerAt = f.steps.findIndex((s) => s.kind === 'handler');
+  const describe = (s: FlowDetail['steps'][number], n: number): LessonBlock[] => {
     const what =
       s.kind === 'unknown'
         ? `Not followed: ${s.label}${s.reason ? ` (${s.reason})` : ''}.`
         : `${s.kind === 'call' ? 'Calls' : s.kind[0]!.toUpperCase() + s.kind.slice(1)}: ${s.label}.`;
-    blocks.push({ type: 'text', text: `${n + 1}. ${what}` });
-    if (s.path && s.line && s.kind !== 'unknown')
-      blocks.push({ type: 'code', path: s.path, line: s.line, label: `Open ${s.label}` });
-  });
+    return [
+      { type: 'text', text: `${n + 1}. ${what}` },
+      ...(s.path && s.line && s.kind !== 'unknown'
+        ? [{ type: 'code' as const, path: s.path, line: s.line, label: `Open ${s.label}` }]
+        : []),
+    ];
+  };
+  const reach: LessonBlock[] = [
+    {
+      type: 'text',
+      text: `This is how a ${f.method} request to ${f.routePath ?? 'this route'} reaches its handler, found by static analysis (nothing was run). Middleware runs in the order it was registered.`,
+    },
+    ...f.steps.slice(0, handlerAt).flatMap(describe),
+  ];
+  const blocks: LessonBlock[] = [
+    {
+      type: 'text',
+      text: `What ${handler.name} does once the request arrives. Calls marked verified are real calls in the code; steps marked "not followed" could not be traced and say why.`,
+    },
+    ...f.steps.slice(handlerAt).flatMap((s, n) => describe(s, n + handlerAt)),
+  ];
   const first = calls[0]!;
   const directly = new Set(calls.map((c) => c.symbolKey));
   const id = `check:flow-call:${f.name}`;
@@ -271,7 +310,13 @@ function applicationPath(i: PathInputs): LearningPathContent | null {
     summary: 'Trace one request through the application, from the route to the code it calls.',
     items: [
       mission,
-      { kind: 'lesson', id: `lesson:flow:${f.name}`, title: `What happens on ${f.name}`, blocks },
+      {
+        kind: 'lesson',
+        id: `lesson:flow-route:${f.name}`,
+        title: `How ${f.name} reaches its handler`,
+        blocks: reach,
+      },
+      { kind: 'lesson', id: `lesson:flow:${f.name}`, title: `What ${handler.name} does`, blocks },
       {
         kind: 'check',
         id,
@@ -337,6 +382,26 @@ function conceptPath(i: PathInputs): LearningPathContent | null {
         ...c,
         explanation: `${target.name} uses ${concept.label}.`,
         refs: [{ path: target.path, line: target.startLine }],
+      },
+      {
+        kind: 'lesson',
+        id: `lesson:concept-review:${concept.id}`,
+        title: `Review: everywhere ${concept.label} appears`,
+        blocks: [
+          {
+            type: 'text',
+            text: `These are the functions in this code that use ${concept.label}. Compare how each one uses it.`,
+          },
+          ...i.functions
+            .filter((f) => f.tags.includes(tag))
+            .slice(0, 12)
+            .map((f): LessonBlock => ({
+              type: 'code',
+              path: f.path,
+              line: f.startLine,
+              label: `Open ${f.name}`,
+            })),
+        ],
       },
     ],
   };
