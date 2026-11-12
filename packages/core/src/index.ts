@@ -21,6 +21,12 @@ export type {
 } from './analysis/types';
 export { classifySelection, lineStarts, toOffset, type Classified } from './analysis/classify';
 export { buildOverview, type OverviewInput } from './analysis/overview';
+export {
+  detectModules,
+  type ArchitectureMap,
+  type ModuleDependency,
+  type ModuleInfo,
+} from './analysis/modules';
 export { SYMBOL_KEY_VERSION, applyStableKeys, stableSymbolKeys } from './analysis/symbolKey';
 
 /**

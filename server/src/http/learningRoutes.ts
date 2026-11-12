@@ -17,6 +17,7 @@ import {
   savePosition,
 } from '../index/learning';
 import { buildTour } from '../index/tour';
+import { getArchitecture } from '../index/architecture';
 import { assertUsable, authorizeSnapshotRead } from './snapshotAccess';
 import type { Services } from '../services';
 import { parse } from './validate';
@@ -79,5 +80,13 @@ export function registerLearningRoutes(app: FastifyInstance, svc: Services) {
     const { id } = parse(IdParam, req.params);
     const snap = assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
     return buildTour(db, snap.id, snap.overview);
+  });
+
+  // ---------------------------------------------------------------- architecture map (P3.1), snapshot readers
+
+  app.get('/api/v1/snapshots/:id/architecture', async (req, reply) => {
+    const { id } = parse(IdParam, req.params);
+    const snap = assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
+    return getArchitecture(db, snap.id);
   });
 }

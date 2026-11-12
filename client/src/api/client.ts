@@ -3,6 +3,7 @@ import {
   type AccountView,
   type AuthSessionResponse,
   type ClaimResponse,
+  type ArchitectureView,
   type BookmarkRequest,
   type BookmarkView,
   type ErrorCode,
@@ -310,6 +311,8 @@ export function createApiClient(
     saveBookmark: (repositoryId: string, b: BookmarkRequest) =>
       call<BookmarkView>('POST', `/api/v1/repositories/${repositoryId}/bookmarks`, b),
     deleteBookmark: (id: string) => call<void>('DELETE', `/api/v1/bookmarks/${id}`),
+    architecture: (snapshotId: string) =>
+      call<ArchitectureView>('GET', `/api/v1/snapshots/${snapshotId}/architecture`),
     tour: (snapshotId: string) => call<TourView>('GET', `/api/v1/snapshots/${snapshotId}/tour`),
     answerCheckText: (checkId: string, text: string) =>
       call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { text }),

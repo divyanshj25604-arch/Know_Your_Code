@@ -961,3 +961,15 @@ details.sec > summary {
   border-bottom: 1px solid var(--border);
   padding: var(--s3) 0;
 }
+.arch-map {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.arch-node {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--s3);
+}

@@ -58,3 +58,17 @@ test.describe('P3.4 bookmarks, thread restore and guided tours', () => {
     await expect(tour.getByText(/Tour stop 1 of/)).toBeVisible();
   });
 });
+
+test.describe('P3.1 architecture map', () => {
+  test('modules are shown on the project page and each node links to its files', async ({ page }) => {
+    await openWorkspace(page);
+    await goMode(page, 'Project');
+    const node = page.getByRole('listitem', { name: 'Module controllers' });
+    await expect(node).toBeVisible();
+    await expect(page.getByRole('listitem', { name: 'Module services' })).toBeVisible();
+    await node.getByText('Files').click();
+    await node.getByRole('button', { name: 'src/controllers/authController.js' }).click();
+    await expect(page).toHaveURL(/\/explore/);
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/controllers/authController.js');
+  });
+});

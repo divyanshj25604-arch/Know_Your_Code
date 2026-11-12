@@ -213,3 +213,11 @@ export interface BookmarkView {
 export interface TourView {
   stops: { path: string; line: number; title: string; why: string; symbolKey: string | null }[];
 }
+
+/** Architecture map of a snapshot (P3.1). `available` is false for snapshots analysed before module detection. */
+export interface ArchitectureView {
+  available: boolean;
+  monorepo: boolean;
+  modules: { key: string; name: string; kind: 'package' | 'directory'; root: string; files: string[] }[];
+  dependencies: { from: string; to: string; imports: number }[];
+}

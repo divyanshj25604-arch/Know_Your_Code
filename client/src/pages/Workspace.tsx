@@ -17,6 +17,7 @@ import { ProjectMode } from '../components/modes/ProjectMode';
 import { ValidateMode } from '../components/modes/ValidateMode';
 import { BookmarkButton, Bookmarks } from '../components/learning/Bookmarks';
 import { TourBar } from '../components/learning/TourBar';
+import { ArchitectureMap } from '../components/learning/ArchitectureMap';
 import type { Selection } from '@kyc/contracts';
 
 export function Workspace() {
@@ -438,6 +439,13 @@ function Loaded({
           }}
           onContinue={() => go('learn')}
         >
+          <ArchitectureMap
+            snapshotId={snap.id}
+            onOpenFile={(p) => {
+              exploration.openFile(p);
+              go('explore');
+            }}
+          />
           <Bookmarks
             repositoryId={snap.repositoryId}
             onOpen={(p, l, label) => {

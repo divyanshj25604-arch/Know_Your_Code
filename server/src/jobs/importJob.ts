@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { ERROR_MESSAGES, type Overview, type StageInfo } from '@kyc/contracts';
 import type { Config } from '../config/env';
 import { withTx, type Db, type Queryable } from '../db/pool';
-import { KycError, readPathAliases, buildOverview, type AnalysisResult } from '@kyc/core';
+import { KycError, readPathAliases, buildOverview, detectModules, type AnalysisResult } from '@kyc/core';
 import { GitHubClient } from '../ingestion/github';
 import { extractTarball, type ExtractLimits, type ExtractResult } from '../ingestion/extract';
 import { runAnalysis } from '../analysis/runner';
@@ -17,6 +17,7 @@ import {
   type SnapshotRow,
 } from '../index/snapshots';
 import { insertFiles, listFilePaths } from '../index/files';
+import { persistArchitecture } from '../index/architecture';
 import { counts, persistAnalysis, topSymbols } from '../index/symbols';
 import { completeRun, currentRun, failRun, relinkExplanationSymbols, startRun } from '../index/runs';
 
@@ -194,6 +195,17 @@ async function persistContent(ctx: RunContext, fetched: Fetched, result: Analysi
     const fileIds = await insertFiles(c, id, fetched.extracted.files);
     const written = await persistAnalysis(c, id, ctx.runId, fileIds, result);
     await relinkExplanationSymbols(c, id);
+    await persistArchitecture(
+      c,
+      id,
+      ctx.runId,
+      fileIds,
+      detectModules(
+        fetched.extracted.files.map((f) => f.path),
+        fetched.extracted.files.filter((f) => f.path === 'package.json' || f.path.endsWith('/package.json')),
+        result.edges,
+      ),
+    );
     const allFiles = await listFilePaths(c, id);
     const cnt = await counts(c, id);
     const top = await topSymbols(c, id, 5);
