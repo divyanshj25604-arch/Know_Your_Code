@@ -228,4 +228,36 @@ describe('ShareTokens (unit)', () => {
     expect(tokens.verify(token, id, new Date(now), now)).toBe(false); // revoked at issue time
     expect(tokens.verify(token, id, new Date(now - 1), now)).toBe(true); // revoked before issue
   });
+
+  const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+  it('accepts exactly one spelling of a signature: every other last character is rejected', () => {
+    // Deterministic: a 32-byte HMAC has 4 unused bits in its last base64url character, so several characters decode
+    // to the same bytes. Issue tokens until one ends in "A" (the case that used to slip through), and also check
+    // the token as issued, whatever it ends with.
+    const now = Date.now();
+    let endsInA: string | null = null;
+    const issued: string[] = [];
+    for (let i = 0; i < 500 && !endsInA; i++) {
+      const t = tokens.issue(id, 1, now - i).token;
+      issued.push(t);
+      if (t.endsWith('A')) endsInA = t;
+    }
+    expect(endsInA).not.toBeNull();
+    for (const token of [endsInA!, issued[0]!]) {
+      const t0 = Number.parseInt(token.split('.')[2]!, 36);
+      expect(tokens.verify(token, id, null, t0)).toBe(true);
+      const accepted = [...B64URL].filter((c) => tokens.verify(token.slice(0, -1) + c, id, null, t0));
+      expect(accepted).toEqual([token.at(-1)]);
+    }
+  });
+
+  it('rejects non-canonical spellings of the timestamps', () => {
+    const now = Date.now();
+    const { token } = tokens.issue(id, 1, now);
+    const [p, exp, iat, sig] = token.split('.') as [string, string, string, string];
+    expect(tokens.verify(`${p}.0${exp}.${iat}.${sig}`, id, null, now)).toBe(false);
+    expect(tokens.verify(`${p}.${exp}.0${iat}.${sig}`, id, null, now)).toBe(false);
+    expect(tokens.verify(token, id, null, now)).toBe(true);
+  });
 });

@@ -43,8 +43,13 @@ export class ShareTokens {
     const expires = parseInt(m[1]!, 36);
     const issued = parseInt(m[2]!, 36);
     if (!Number.isSafeInteger(expires) || !Number.isSafeInteger(issued)) return false;
-    const given = Buffer.from(m[3]!, 'base64url');
-    const want = this.mac(snapshotId, expires, issued);
+    // Exactly one spelling of a token is valid. The timestamps must be in canonical base 36 (no leading zeros or
+    // other spellings of the same number), and the signature is compared as its canonical base64url text, not as
+    // decoded bytes: decoding ignores the unused low bits of the last character, so "…A" and "…B" can decode to
+    // the same bytes and an altered token would otherwise still verify.
+    if (m[1] !== expires.toString(36) || m[2] !== issued.toString(36)) return false;
+    const given = Buffer.from(m[3]!, 'utf8');
+    const want = Buffer.from(this.mac(snapshotId, expires, issued).toString('base64url'), 'utf8');
     if (given.length !== want.length || !timingSafeEqual(given, want)) return false;
     if (expires <= now || issued > now + 60_000) return false;
     if (revokedAt && issued <= revokedAt.getTime()) return false;
