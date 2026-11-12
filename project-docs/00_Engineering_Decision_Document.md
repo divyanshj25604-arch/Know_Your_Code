@@ -345,6 +345,18 @@ Phase 1 is the bottleneck: identity, stable keys and the learner schema must lan
 | P2.3 | AI capability registry with one evidence envelope; split `AiService`; per-capability versions; streaming | T10 | `ai/service.ts`, `ai/schemas.ts`, `ai/prompts.ts`, `ai/verify.ts`, `packages/contracts` | P0.2, P1.1 | P3.1–P3.6, P4.3 | Existing five flows run through the registry; claims marked `verified` must cite an edge; `ai.test.ts` passes | L | Yes |
 | P2.4 | Retrieval planner over `GraphStore`: deterministic ordering, range dedupe, multi-hop traversal, intent-specific plans | T8 | `retrieval/context.ts`, `index/symbols.ts` `getRelations` (`ORDER BY`), new store interface | P1.1, P1.3 | P3.2, P3.3 | Same selection gives the same pack; a 3-hop plan stays within budget; a retrieval fixture suite passes | L | Yes |
 
+**Phase 3 status (2026-11-12):** P3.1–P3.7 implemented, committed (not pushed) and verified with the fake provider ([11_Phase_3_Completion_Report.md](11_Phase_3_Completion_Report.md)). All seven acceptance criteria pass. Resolved: T7 for Express (adapter, mount prefixes, middleware order, literal `fetch`/`axios` matching, `flows` and `flow_steps`). The real-model behaviour of concept teaching, rubric grading and flow narration stays unverified until P0.2. Implementation notes:
+
+- **Analysis (core):**
+  - Concept detectors write `concept:<id>` symbol tags.
+  - The Express adapter and `discoverFlows` live in core. Unknown hops are stored as `unknown` steps with a reason.
+  - The database requires every `verified` step to reference its call edge.
+  - `ANALYSER_VERSION` is `core-3`; older snapshots need a re-import for concepts, flows and paths.
+- **Walkthrough (Level 5):** static, over stored flow steps; nothing is executed. Narration attaches only through a step's edge id.
+- **Learning paths:** generated deterministically in core from the architecture map, concept index and flows, not stored. Missions and checks are graded on the server; progress lives in `learning_progress`, keyed by durable item ids (migration 013).
+
+**P0.2 status:** deferred to the tech team, which will run it after Phase 4's unblocked tasks. P4.3 and all real-model verification wait for it.
+
 **Phase 3 — The six learning levels**
 
 | ID | Task | Why | Modules | Prerequisites | Unlocks | Acceptance criteria | Effort | Blocks MVP |
