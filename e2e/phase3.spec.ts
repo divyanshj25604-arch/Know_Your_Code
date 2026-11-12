@@ -125,7 +125,7 @@ test.describe('P3.2 request flows and P3.6 walkthrough', () => {
     const walk = page.getByRole('region', { name: 'Flow walkthrough' });
     const steps = walk.getByRole('list', { name: 'Flow steps' });
     await expect(steps.getByRole('listitem')).toHaveCount(8);
-    await expect(steps.getByRole('listitem').nth(5)).toContainText('Unknown');
+    await expect(steps.getByRole('listitem').nth(5)).toContainText('Not sure');
     await expect(steps.getByRole('listitem').nth(5)).toContainText(/no declaration was found/);
     await walk.getByRole('button', { name: 'Start' }).click();
     await expect(walk.getByText('Step 1 of 8: Route — POST /auth/login')).toBeVisible();

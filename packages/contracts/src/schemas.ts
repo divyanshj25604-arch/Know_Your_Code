@@ -304,3 +304,27 @@ export const PathItemSubmitSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('check'), answerIndex: z.number().int().min(0).max(9) }),
 ]);
 export type PathItemSubmit = z.infer<typeof PathItemSubmitSchema>;
+
+export const AnnotationCreateSchema = z
+  .object({
+    targetKind: z.enum(['module', 'file', 'symbol', 'relation', 'flow_step']),
+    targetKey: z.string().min(1).max(4096),
+    targetLabel: z.string().trim().min(1).max(300),
+    path: z.string().min(1).max(1024).nullable().default(null),
+    startLine: z.number().int().min(1).nullable().default(null),
+    endLine: z.number().int().min(1).nullable().default(null),
+    commitSha: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .nullable()
+      .default(null),
+    body: z.string().trim().min(1).max(2000),
+  })
+  .refine((a) => (a.startLine === null) === (a.endLine === null), {
+    message: 'startLine and endLine go together',
+  })
+  .refine((a) => a.startLine === null || (a.endLine !== null && a.endLine >= a.startLine), {
+    message: 'endLine precedes startLine',
+  });
+export type AnnotationCreate = z.input<typeof AnnotationCreateSchema>;
+export const AnnotationUpdateSchema = z.object({ body: z.string().trim().min(1).max(2000) });

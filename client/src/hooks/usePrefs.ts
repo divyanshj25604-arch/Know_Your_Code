@@ -2,18 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Depth } from '@kyc/contracts';
 import { readPref, writePref } from '../lib/storage';
 
-export type Theme = 'system' | 'light' | 'dark';
+export type Theme = 'light' | 'dark';
 
+/** Dark-first (brand kit): dark unless the user chose light. An older stored "system" value reads as dark. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => (readPref('kyc.theme') as Theme | null) ?? 'system');
+  const [theme, setTheme] = useState<Theme>(() => (readPref('kyc.theme') === 'light' ? 'light' : 'dark'));
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'system') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', theme);
+    if (theme === 'light') root.setAttribute('data-theme', 'light');
+    else root.removeAttribute('data-theme');
   }, [theme]);
   const cycle = useCallback(() => {
     setTheme((t) => {
-      const next: Theme = t === 'system' ? 'dark' : t === 'dark' ? 'light' : 'system';
+      const next: Theme = t === 'dark' ? 'light' : 'dark';
       writePref('kyc.theme', next);
       return next;
     });

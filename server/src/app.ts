@@ -12,9 +12,11 @@ import { KycError } from '@kyc/core';
 import { errorBody, httpStatusOf } from './http/errors';
 import { createServices, type Services } from './services';
 import { registerApiRoutes } from './http/routes';
+import { registerUploadRoutes } from './http/uploadRoutes';
 import { registerAiRoutes } from './http/aiRoutes';
 import { registerAuthRoutes } from './http/authRoutes';
 import { registerLearningRoutes } from './http/learningRoutes';
+import { registerGraphRoutes } from './http/graphRoutes';
 import { registerSecurity } from './http/security';
 
 /** Display names of the AI providers, for the privacy notice. */
@@ -149,7 +151,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   registerAuthRoutes(app, services);
   registerApiRoutes(app, services);
+  registerUploadRoutes(app, services);
   registerLearningRoutes(app, services);
+  registerGraphRoutes(app, services);
   registerAiRoutes(app, services);
 
   const staticDir = path.resolve(config.STATIC_DIR ?? path.resolve(process.cwd(), 'client/dist'));

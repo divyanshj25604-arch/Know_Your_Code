@@ -21,7 +21,8 @@ export interface StageInfo {
 export interface SnapshotView {
   id: string;
   repositoryId: string;
-  repository: { owner: string; name: string };
+  /** `upload`: imported from a ZIP file; `owner` is empty and `name` is the archive's name. */
+  repository: { owner: string; name: string; source: RepositorySource };
   commitSha: string | null;
   status: SnapshotStatus;
   stages: StageInfo[];
@@ -29,6 +30,8 @@ export interface SnapshotView {
   error: { code: string; message: string } | null;
   expiresAt: string;
 }
+
+export type RepositorySource = 'github' | 'upload';
 
 export interface ImportResponse {
   repositoryId: string;
@@ -366,4 +369,98 @@ export interface PathItemResult {
   pathStatus: ProgressStatus;
   /** Where the answer is in the code (shown after a correct answer or to explain a wrong one). */
   refs: { path: string; line: number }[];
+}
+
+// ---------------------------------------------------------------- Explore graphs
+
+/** Confidence of a relationship as shown to the learner: parser fact, pattern or inference, or not followed. */
+export type GraphProvenance = 'verified' | 'pattern' | 'unknown';
+
+/**
+ * File-level relationship graph of a snapshot's current analysis run, aggregated from stored edges. Every edge is a
+ * count of real edges; nothing is inferred beyond grouping by file.
+ */
+export interface FileGraphView {
+  files: { path: string; module: string | null; symbols: number; analysable: boolean }[];
+  edges: {
+    from: string;
+    to: string;
+    /** imports: an import statement; calls: a call into the other file; references: a use as a value (JSX, callback, re-export). */
+    kind: 'imports' | 'calls' | 'references';
+    count: number;
+    /** First line in `from` where the relationship appears. */
+    line: number;
+    provenance: 'verified' | 'pattern';
+    /** True when at least one of the grouped references is a JSX element (the file renders a component of the other). */
+    jsx?: boolean;
+  }[];
+  /** Imports of, and calls into, external packages (npm), per file. */
+  externals: { from: string; package: string; kind: 'imports' | 'calls'; count: number; line: number }[];
+}
+
+/** One file's structure and neighbourhood ("What this file does"), from stored analysis only. */
+export interface FileOutlineView {
+  path: string;
+  language: string | null;
+  analysable: boolean;
+  lines: number;
+  module: { key: string; name: string } | null;
+  symbols: {
+    id: string;
+    key: string | null;
+    name: string;
+    kind: string;
+    tags: string[];
+    startLine: number;
+    endLine: number;
+    exported: boolean;
+    signature: string | null;
+    parentId: string | null;
+  }[];
+  imports: {
+    path: string | null;
+    external: string | null;
+    line: number;
+    provenance: 'verified' | 'pattern';
+  }[];
+  importedBy: { path: string; line: number; provenance: 'verified' | 'pattern' }[];
+  /** Symbol-level edges with at least one end in this file (calls, references, route registrations). */
+  symbolEdges: {
+    id: string;
+    kind: 'calls' | 'references' | 'route_handler';
+    from: { symbolId: string | null; name: string | null; path: string };
+    to: {
+      symbolId: string | null;
+      name: string | null;
+      path: string | null;
+      line: number | null;
+      external: string | null;
+    };
+    line: number;
+    provenance: 'verified' | 'pattern';
+    /** Why a call could not be followed (no_declaration, dynamic, …); null when it was. */
+    reason: string | null;
+    jsx?: boolean;
+  }[];
+}
+
+export type AnnotationTargetKind = 'module' | 'file' | 'symbol' | 'relation' | 'flow_step';
+
+/**
+ * A learner's note on a graph entity. `targetKey` is stable across re-analysis: a module key, a file path, a symbol
+ * key, `from|kind|to` for a file relationship, or `METHOD route#index` for a flow step. `path`/lines anchor it in code.
+ */
+export interface AnnotationView {
+  id: string;
+  targetKind: AnnotationTargetKind;
+  targetKey: string;
+  /** Human label of the target at the time of writing (for example "login()" or "auth.js → userService.js"). */
+  targetLabel: string;
+  path: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  commitSha: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
 }

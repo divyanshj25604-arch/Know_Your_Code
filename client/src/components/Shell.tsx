@@ -20,16 +20,16 @@ export function useHealth(): HealthView | null {
 
 export function ThemeToggle() {
   const [theme, cycle] = useTheme();
-  const label = theme === 'system' ? 'Theme: system' : theme === 'dark' ? 'Theme: dark' : 'Theme: light';
+  const next = theme === 'dark' ? 'light' : 'dark';
   return (
     <button
       type="button"
       className="icon-btn"
       onClick={cycle}
-      aria-label={`${label}. Activate to change.`}
-      title={label}
+      aria-label={`Theme: ${theme}. Switch to ${next}.`}
+      title={`Switch to the ${next} theme`}
     >
-      <span aria-hidden="true">{theme === 'dark' ? '☾' : theme === 'light' ? '☀' : '◐'}</span>
+      <span aria-hidden="true">{theme === 'dark' ? '☾' : '☀'}</span>
     </button>
   );
 }
@@ -55,14 +55,21 @@ export function AiStatusBanner({ health }: { health: HealthView | null }) {
   return null;
 }
 
-export function Header({ children }: { children?: ReactNode }) {
+/**
+ * The persistent top bar. The product name is set in text: the brand's logo files are not in the repository and must
+ * not be redrawn (08 §D). `children` holds the workspace context (project switcher, modes).
+ */
+export function Header({ children, end }: { children?: ReactNode; end?: ReactNode }) {
   return (
     <header className="topbar">
       <Link to="/" className="logo" aria-label="Know Your Code, home">
-        <span aria-hidden="true">{'{ }'}</span> Know Your Code
+        Know Your Code
       </Link>
       <div className="topbar-mid">{children}</div>
-      <ThemeToggle />
+      <div className="row top-end">
+        {end}
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

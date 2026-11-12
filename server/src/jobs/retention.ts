@@ -5,7 +5,7 @@ import { deleteEndedSessions } from '../auth/store';
 
 /**
  * Delete expired code (7-day snapshot retention) and trim operational tables that must not keep data forever.
- * Learning history (explanations, progress, bookmarks, positions) is kept for registered accounts.
+ * Learning history (explanations, progress, bookmarks, annotations, positions) is kept for registered accounts.
  */
 export async function runRetention(db: Db, log: FastifyBaseLogger): Promise<{ snapshots: number }> {
   const snapshots = await deleteExpired(db);

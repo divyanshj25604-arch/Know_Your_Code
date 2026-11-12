@@ -17,7 +17,7 @@ export const CSP = [
 ].join('; ');
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const CORS_METHODS = 'GET, POST, PUT, DELETE';
+const CORS_METHODS = 'GET, POST, PUT, PATCH, DELETE';
 const CORS_HEADERS = ['authorization', 'content-type', 'accept', SHARE_HEADER];
 const CORS_MAX_AGE_S = 600;
 

@@ -12,10 +12,18 @@ function NotFound() {
   return (
     <div className="page">
       <Header />
-      <main className="narrow">
+      <main className="narrow" id="main">
         <h1 className="page-title">Page not found</h1>
-        <p>
-          <Link to="/">Go home</Link>
+        <p className="lede">
+          This link doesn't point to anything here. It may be mistyped, or the page has moved.
+        </p>
+        <p className="row">
+          <Link to="/" className="btn">
+            Go home
+          </Link>
+          <Link to="/start" className="btn">
+            Open a repository
+          </Link>
         </p>
       </main>
     </div>
@@ -35,7 +43,17 @@ const Router = useHashRoutes ? HashRouter : BrowserRouter;
 export function App() {
   return (
     <Router>
-      <a className="skip-link" href="#main">
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(e) => {
+          // Hash routes must not be replaced by the fragment: move focus instead of following the link.
+          e.preventDefault();
+          const main = document.getElementById('main');
+          main?.setAttribute('tabindex', '-1');
+          main?.focus();
+        }}
+      >
         Skip to content
       </a>
       <Routes>
@@ -47,8 +65,8 @@ export function App() {
           element={
             <Suspense
               fallback={
-                <p className="muted" style={{ padding: 16 }}>
-                  Loading…
+                <p className="muted" role="status" style={{ padding: 16 }}>
+                  Opening the workspace…
                 </p>
               }
             >

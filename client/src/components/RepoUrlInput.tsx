@@ -6,12 +6,15 @@ export function RepoUrlInput({
   onChange,
   onSubmit,
   submitting,
+  busyLabel,
   error,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSubmit: (url: string) => void;
   submitting: boolean;
+  /** Button text while this import runs (another import running just disables it). */
+  busyLabel?: string | undefined;
   error?: ReactNodeLike;
 }) {
   const id = useId();
@@ -36,7 +39,7 @@ export function RepoUrlInput({
           inputMode="url"
           autoComplete="off"
           spellCheck={false}
-          placeholder="https://github.com/user/project"
+          placeholder="https://github.com/username/repository"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={() => setTouched(true)}
@@ -45,7 +48,7 @@ export function RepoUrlInput({
           disabled={submitting}
         />
         <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting ? 'Checking…' : 'Analyse repository'}
+          {submitting && busyLabel !== undefined ? busyLabel : 'Analyse repository'}
         </button>
       </div>
       <p id={`${id}-hint`} className="field-hint" aria-live="polite">

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { repoName } from '../lib/repoName';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { SnapshotView } from '@kyc/contracts';
 import { api, ApiError } from '../api/client';
-import { ErrorState } from '../components/ui';
+import { ErrorState, OnboardSteps, PageHeader } from '../components/ui';
 import { StageProgress } from '../components/StageProgress';
 import { Header } from '../components/Shell';
 
@@ -57,14 +58,24 @@ export function Processing() {
   return (
     <div className="page">
       <Header />
-      <main className="narrow">
-        <h1 className="page-title">
-          {snap ? `${snap.repository.owner}/${snap.repository.name}` : 'Opening repository…'}
-        </h1>
+      <main className="narrow" id="main">
+        <OnboardSteps current={2} />
+        <PageHeader
+          eyebrow="Analysing"
+          title={snap ? repoName(snap.repository) : 'Opening repository…'}
+          lede="We read the code without running it. The project opens on its own when analysis finishes."
+        />
         {error && !snap && <ErrorState code={error.code} message={error.message} />}
         {snap && (
           <div role="status" aria-live="polite">
-            <StageProgress stages={snap.stages} />
+            <StageProgress stages={snap.stages} source={snap.repository.source} />
+            {snap.stages.find((x) => x.name === 'filtering')?.state === 'done' && snap.skippedCount > 0 && (
+              <p className="small muted">
+                {snap.skippedCount.toLocaleString()} file{snap.skippedCount === 1 ? ' was' : 's were'} set
+                aside (binaries, dependencies, generated code or possible secrets). The project lists them
+                once it opens.
+              </p>
+            )}
           </div>
         )}
         {slow && !failed && (
@@ -90,10 +101,26 @@ export function Processing() {
             </button>
           </div>
         )}
-        <p className="muted small">
-          Tip: once it opens, drag over any code (or double-click a name) and press <kbd>E</kbd> to explain
-          it.
-        </p>
+        {!failed && snap?.status !== 'expired' && (
+          <section className="card" aria-labelledby="next-h">
+            <h2 id="next-h" className="card-h">
+              What you'll see next
+            </h2>
+            <ul className="plain-list">
+              <li>
+                <strong>Project</strong>: what the code is made of, an interactive architecture map, and where
+                to start.
+              </li>
+              <li>
+                <strong>Learn</strong>: learning paths and a guided tour through the real code.
+              </li>
+              <li>
+                <strong>Explore</strong>: code, graph and explanation side by side. Select a node or a line to
+                see how it connects.
+              </li>
+            </ul>
+          </section>
+        )}
         <p>
           <Link to="/">← Home</Link>
         </p>

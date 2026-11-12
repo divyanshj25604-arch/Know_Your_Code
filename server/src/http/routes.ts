@@ -176,10 +176,11 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
       repository_id: string;
       gh_owner: string;
       gh_name: string;
+      source: string;
       status: string;
       expires_at: Date;
     }>(
-      `SELECT s.id, s.repository_id, r.gh_owner, r.gh_name, s.status, s.expires_at
+      `SELECT s.id, s.repository_id, r.gh_owner, r.gh_name, r.source, s.status, s.expires_at
        FROM snapshots s JOIN repositories r ON r.id=s.repository_id
        WHERE r.owner_id=$1 AND s.expires_at > now() AND s.status IN ('ready','ready_partial')
        ORDER BY s.created_at DESC LIMIT 10`,
@@ -189,7 +190,7 @@ export function registerApiRoutes(app: FastifyInstance, svc: Services) {
       snapshots: r.rows.map((x) => ({
         snapshotId: x.id,
         repositoryId: x.repository_id,
-        repository: { owner: x.gh_owner, name: x.gh_name },
+        repository: { owner: x.gh_owner, name: x.gh_name, source: x.source },
         status: x.status,
         expiresAt: x.expires_at.toISOString(),
       })),

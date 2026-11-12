@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import type { SnapshotView } from '@kyc/contracts';
+import type { Depth, PathsView, Selection, SnapshotView, TourView } from '@kyc/contracts';
 import { api, ApiError } from '../api/client';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { CodeViewer, type Anchor, type ViewerHandle } from '../components/CodeViewer';
 import { ExplanationPanel } from '../components/ExplanationPanel';
 import { FileTree } from '../components/FileTree';
-import { Overview } from '../components/Overview';
 import { RepoMenu } from '../components/RepoMenu';
 import { AiStatusBanner, Header, useHealth } from '../components/Shell';
-import { ErrorState, Skeleton } from '../components/ui';
+import { EmptyState, ErrorState, Skeleton } from '../components/ui';
 import { useDepth } from '../hooks/usePrefs';
+import { useLearnGuide, usePaths, useTour } from '../hooks/useLearning';
 import { useWorkspace, type Workspace as WorkspaceState } from '../hooks/useWorkspace';
 import { MODES, ModeNav, type Mode } from '../components/modes/ModeNav';
 import { ProjectMode } from '../components/modes/ProjectMode';
@@ -21,8 +21,13 @@ import { ArchitectureMap } from '../components/learning/ArchitectureMap';
 import { Concepts } from '../components/learning/Concepts';
 import { FlowList } from '../components/flows/FlowList';
 import { PathList, PathPlayer } from '../components/learning/PathPlayer';
-import { FlowWalkthrough } from '../components/flows/FlowWalkthrough';
-import type { Selection } from '@kyc/contracts';
+import { GraphPanel, type CodePlace, type Drill, type GraphView } from '../components/explore/GraphPanel';
+import { FileExplanation } from '../components/explore/FileExplanation';
+import { ProjectMap } from '../components/explore/ProjectMap';
+import { useAnnotations, useFileGraph, useFlows, useOutline } from '../components/explore/useExploreData';
+import { STEP_KIND, type Target } from '../components/explore/graphModel';
+import { queries } from '../state/queryCache';
+import { repoName } from '../lib/repoName';
 
 export function Workspace() {
   const { id = '', mode: rawMode } = useParams();
@@ -56,24 +61,28 @@ export function Workspace() {
       );
   }, [id]);
 
-  // /r/:id (and unknown modes) open Explore, keeping deep-link and share parameters.
-  if (!MODES.includes(rawMode as Mode)) return <Navigate to={`/r/${id}/explore${location.search}`} replace />;
+  // /r/:id opens the project page (Journey A: overview and a next step first). A deep link to code (?path=) opens
+  // Explore, keeping its parameters, so existing share and deep links still land on the code.
+  if (!MODES.includes(rawMode as Mode)) {
+    const to = params.get('path') ? 'explore' : 'project';
+    return <Navigate to={`/r/${id}/${to}${location.search}`} replace />;
+  }
   const mode = rawMode as Mode;
 
   if (snapError)
     return (
-      <Shell>
+      <ErrorShell>
         <ErrorState
           code={snapError.code}
           message={snapError.message}
           onAction={() => nav('/start')}
           actionLabel="Open another repository"
         />
-      </Shell>
+      </ErrorShell>
     );
   if (snap && (snap.status === 'failed' || snap.status === 'expired')) {
     return (
-      <Shell>
+      <ErrorShell>
         <ErrorState
           code={
             snap.status === 'expired' ? 'SNAPSHOT_EXPIRED' : ((snap.error?.code as never) ?? 'INDEX_FAILED')
@@ -82,7 +91,7 @@ export function Workspace() {
           onAction={() => nav('/start')}
           actionLabel="Import again"
         />
-      </Shell>
+      </ErrorShell>
     );
   }
   if (snap && snap.status !== 'ready' && snap.status !== 'ready_partial') {
@@ -91,9 +100,12 @@ export function Workspace() {
   }
   if (!snap)
     return (
-      <Shell>
+      <ErrorShell>
+        <p className="muted" role="status">
+          Opening the repository…
+        </p>
         <Skeleton lines={5} />
-      </Shell>
+      </ErrorShell>
     );
 
   return (
@@ -113,11 +125,197 @@ export function Workspace() {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * Explore (PRD stage 5): code and "What this file does" on the left, the graph in the centre, the explanation (AI) on
+ * the right, all one environment. A node chosen in the graph opens and highlights its code and gives the explanation
+ * panel that context; moving the cursor in the code selects the matching node.
+ */
+function ExploreBody({
+  snap,
+  ws,
+  depth,
+  setDepth,
+  onUrl,
+  bookmarkTarget,
+  readOnly,
+  view,
+  onView,
+  drill,
+  onDrill,
+  flowId,
+  onFlow,
+  actions,
+}: {
+  snap: SnapshotView;
+  ws: WorkspaceState;
+  depth: Depth;
+  setDepth: (d: Depth) => void;
+  onUrl: (path: string | null, line: number | null) => void;
+  bookmarkTarget: { repositoryId: string; commitSha: string | null };
+  readOnly: boolean;
+  view: GraphView;
+  onView: (v: GraphView) => void;
+  drill: Drill;
+  onDrill: (d: Drill) => void;
+  flowId: string | null;
+  onFlow: (id: string | null) => void;
+  actions: ReactNode;
+}) {
+  const entry = ws.entry;
+  const path = entry?.path ?? null;
+  const outline = useOutline(snap.id, path);
+  const fg = useFileGraph(snap.id);
+  const flows = useFlows(snap.id);
+  const ann = useAnnotations(snap.repositoryId, readOnly);
+  const [cursor, setCursor] = useState<{ entryId: string; line: number } | null>(null);
+
+  // Where the code is, for the graph: the declaration opened from a relation or node, else the innermost declaration
+  // around the cursor the user placed, else the declaration an explanation is about.
+  const code: CodePlace = (() => {
+    if (!entry) return { path: null, line: null, symbol: null };
+    if (entry.relationSymbolId)
+      return {
+        path,
+        line: entry.line,
+        symbol: {
+          id: entry.relationSymbolId,
+          key: entry.relations?.symbol?.key ?? null,
+          name: entry.relations?.symbol?.name ?? entry.label,
+          line: entry.line,
+        },
+      };
+    const at = cursor && cursor.entryId === entry.id ? cursor.line : null;
+    if (at !== null && outline.data?.path === path) {
+      const inner = outline.data.symbols
+        .filter(
+          (x) => x.startLine <= at && x.endLine >= at && x.kind !== 'parameter' && x.kind !== 'variable',
+        )
+        .sort((a, b) => a.endLine - a.startLine - (b.endLine - b.startLine))[0];
+      return {
+        path,
+        line: at,
+        symbol: inner ? { id: inner.id, key: inner.key, name: inner.name, line: inner.startLine } : null,
+      };
+    }
+    const es = entry.expl?.relations?.symbol;
+    return {
+      path,
+      line: entry.line,
+      symbol: es && es.path === path ? { id: es.id, key: es.key, name: es.name, line: es.startLine } : null,
+    };
+  })();
+
+  const openTarget = (t: Target) => {
+    if (t.kind === 'file') ws.openFile(t.path);
+    else if (t.kind === 'symbol') ws.navigate(t.path, t.line, t.name, t.id ?? undefined);
+    else if (t.kind === 'step' && t.step.path && t.step.line)
+      ws.navigate(
+        t.step.path,
+        t.step.line,
+        `${STEP_KIND[t.step.kind]}: ${t.step.label}`,
+        t.step.symbolId ?? undefined,
+      );
+    else if ((t.kind === 'relation' || t.kind === 'unknown') && t.path && t.line)
+      ws.navigate(t.path, t.line, t.label);
+  };
+
+  /** Explain one line of code (a relationship's evidence) through the normal explanation pipeline. */
+  const explainLine = async (p: string, line: number) => {
+    try {
+      const f = await queries.get(`file:${snap.id}:${p}`, () => api.file(snap.id, p));
+      const text = f.content.split('\n')[line - 1] ?? '';
+      if (!text.trim()) return ws.navigate(p, line, `${p.split('/').pop()}:${line}`);
+      const indent = text.length - text.trimStart().length;
+      await ws.explain(
+        { path: p, startLine: line, startCol: indent, endLine: line, endCol: text.length },
+        text.trim(),
+        depth,
+      );
+    } catch {
+      ws.navigate(p, line, `${p.split('/').pop()}:${line}`);
+    }
+  };
+  const explainTarget = async (t: Target) => {
+    const symbolId = t.kind === 'symbol' ? t.id : t.kind === 'step' ? t.step.symbolId : null;
+    if (symbolId) {
+      try {
+        const rel = await queries.get(`relations:${symbolId}`, () => api.relations(symbolId));
+        await ws.explainSymbol(rel, depth);
+        return;
+      } catch {
+        /* fall through to the line */
+      }
+    }
+    const loc =
+      t.kind === 'step'
+        ? t.step.path && t.step.line
+          ? { path: t.step.path, line: t.step.line }
+          : null
+        : t.kind === 'symbol' || t.kind === 'relation' || t.kind === 'unknown'
+          ? t.path && t.line
+            ? { path: t.path, line: t.line }
+            : null
+          : null;
+    if (loc) await explainLine(loc.path, loc.line);
+  };
+
+  return (
+    <WorkspaceView
+      ws={ws}
+      depth={depth}
+      setDepth={setDepth}
+      onUrl={onUrl}
+      bookmarkTarget={bookmarkTarget}
+      onCursor={(line) => entry && setCursor({ entryId: entry.id, line })}
+      graph={
+        <GraphPanel
+          snapshotId={snap.id}
+          commitSha={snap.commitSha}
+          code={code}
+          view={view}
+          onView={onView}
+          drill={drill}
+          onDrill={onDrill}
+          flowId={flowId}
+          onFlow={onFlow}
+          canNarrate={!readOnly}
+          ann={ann}
+          onOpenTarget={openTarget}
+          onExplainTarget={(t) => void explainTarget(t)}
+          onFlowGo={(p, l, label) => ws.navigate(p, l, label)}
+          onOpenNote={(a) => {
+            if (a.targetKind === 'module') onDrill({ level: 'module', key: a.targetKey });
+            if (a.path) ws.navigate(a.path, a.startLine ?? 1, a.targetLabel);
+          }}
+        />
+      }
+      fileExpl={
+        <FileExplanation
+          path={path}
+          outline={outline.data}
+          outlineError={outline.error}
+          onRetry={outline.retry}
+          fileGraph={fg.data}
+          flows={flows.data}
+          currentSymbolId={code.symbol?.id ?? null}
+          onOpen={(p, l, label) => ws.navigate(p, l, label)}
+          onSymbol={(x) => ws.navigate(path!, x.startLine, x.name, x.id)}
+          onWalk={onFlow}
+        />
+      }
+      empty={() => (
+        <ExploreStart ws={ws} snapshotId={snap.id} repositoryId={snap.repositoryId} onWalk={onFlow} />
+      )}
+      actions={actions}
+    />
+  );
+}
+
+function ErrorShell({ children }: { children: ReactNode }) {
   return (
     <div className="page">
       <Header />
-      <main className="narrow">
+      <main className="narrow" id="main">
         {children}
         <p>
           <Link to="/">← Home</Link>
@@ -127,30 +325,49 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** One workspace track's screen: trail, file tree, code viewer and explanation panel (Learn and Explore modes). */
+/**
+ * One workspace track's screen (Learn and Explore): the trail bar, then three columns. Left: the guide (Learn home,
+ * learning path, tour or flow walkthrough) or, when there is no guide, the file tree; with a guide, files open as a
+ * drawer. Centre: always the code. Right: always the explanation. A code reference clicked anywhere opens in the
+ * centre and is highlighted the same way.
+ */
 function WorkspaceView({
   ws,
   depth,
   setDepth,
   onUrl,
   actions,
-  banner,
+  guide,
+  empty,
   bookmarkTarget,
+  graph,
+  fileExpl,
+  onCursor,
 }: {
   ws: WorkspaceState;
-  depth: import('@kyc/contracts').Depth;
-  setDepth: (d: import('@kyc/contracts').Depth) => void;
+  depth: Depth;
+  setDepth: (d: Depth) => void;
   /** Keep the URL shareable (Explore only). */
   onUrl?: (path: string | null, line: number | null) => void;
   /** Mode-specific controls shown in the trail bar. */
-  actions?: React.ReactNode;
+  actions?: ReactNode;
   /**
-   * Shown above the panes (tour, flow walkthrough, learning path). As a function it receives the place the learner is
-   * at in the code (the viewer cursor, or the current stop).
+   * The left-column guide. As a function it receives the place the learner is at in the code (the viewer cursor, or
+   * the current stop).
    */
-  banner?: React.ReactNode | ((place: () => { path: string; line: number } | null) => React.ReactNode);
+  guide?: ReactNode | ((place: () => { path: string; line: number } | null) => ReactNode);
+  /** Shown in the centre when no code is open. */
+  empty?: (ctx: { openFiles: () => void }) => ReactNode;
   /** Where bookmarks are saved; absent when bookmarking is not possible. */
   bookmarkTarget?: { repositoryId: string; commitSha: string | null };
+  /**
+   * Explore's layout: code above "What this file does" on the left, this graph in the centre (the largest area), the
+   * explanation on the right. Files open as a drawer.
+   */
+  graph?: ReactNode;
+  fileExpl?: ReactNode;
+  /** The user moved the cursor in the code (code → graph). */
+  onCursor?: (line: number) => void;
 }) {
   const viewer = useRef<ViewerHandle>(null);
   const [anchor, setAnchor] = useState<{ sel: Selection & { text?: string }; at: Anchor } | null>(null);
@@ -189,6 +406,7 @@ function WorkspaceView({
         if (e.key === 't' || e.key === 'T') {
           if (!t?.closest('.cm-editor')) setTreeOpen((o) => !o);
         } else if (e.key === 'Escape') {
+          if (t?.closest('dialog')) return;
           setSheet(false);
           setTreeOpen(false);
           setAnchor(null);
@@ -206,29 +424,37 @@ function WorkspaceView({
     [ws],
   );
 
-  const showOverview = !entry;
-  const markRange = entry?.expl?.selection ?? null;
+  // The code an explanation is about, or the whole declaration opened from a relation or a graph node.
+  const relSym = entry?.relations?.symbol;
+  const markRange =
+    entry?.expl?.selection ??
+    (relSym && relSym.path === entry?.path
+      ? { path: relSym.path, startLine: relSym.startLine, startCol: 0, endLine: relSym.endLine, endCol: 0 }
+      : null);
   const fileData = ws.file.data;
+  const guideNode =
+    typeof guide === 'function'
+      ? guide(() => {
+          const s = viewer.current?.getSelection();
+          if (s) return { path: s.path, line: s.startLine };
+          return entry?.path && entry.line ? { path: entry.path, line: entry.line } : null;
+        })
+      : guide;
+  const hasGuide = Boolean(guideNode);
+  const explore = Boolean(graph);
+  const drawer = hasGuide || explore;
 
   return (
     <>
-      <div className="subbar">
+      <div className={`subbar${drawer ? ' has-guide' : ''}${explore ? ' explore-bar' : ''}`}>
         <button
           type="button"
           className="btn btn-small tree-toggle"
           aria-expanded={treeOpen}
           onClick={() => setTreeOpen(!treeOpen)}
+          title="Files (T)"
         >
           Files
-        </button>
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={() => ws.goTo(-1)}
-          disabled={!entry}
-          aria-label="Project overview"
-        >
-          Overview
         </button>
         <Breadcrumbs
           entries={ws.entries}
@@ -238,25 +464,30 @@ function WorkspaceView({
           onForward={ws.forward}
           canForward={ws.canForward}
         />
-        {actions}
-        <button
-          type="button"
-          className="btn btn-small sheet-toggle"
-          aria-expanded={sheet}
-          onClick={() => setSheet(!sheet)}
-        >
-          Explanation
-        </button>
+        <div className="subbar-actions">
+          {actions}
+          <button
+            type="button"
+            className="btn btn-small sheet-toggle"
+            aria-expanded={sheet}
+            onClick={() => setSheet(!sheet)}
+          >
+            Explanation
+          </button>
+        </div>
       </div>
 
-      {typeof banner === 'function'
-        ? banner(() => {
-            const s = viewer.current?.getSelection();
-            if (s) return { path: s.path, line: s.startLine };
-            return entry?.path && entry.line ? { path: entry.path, line: entry.line } : null;
-          })
-        : banner}
-      <div className={`workspace${treeOpen ? ' tree-open' : ''}${sheet ? ' sheet-open' : ''}`}>
+      <div
+        className={`workspace${hasGuide ? ' has-guide' : ''}${explore ? ' explore-layout' : ''}${treeOpen ? ' tree-open' : ''}${sheet ? ' sheet-open' : ''}`}
+      >
+        {hasGuide && <div className="ws-guide">{guideNode}</div>}
+        <button
+          type="button"
+          className="drawer-scrim"
+          aria-label="Close files"
+          tabIndex={-1}
+          onClick={() => setTreeOpen(false)}
+        />
         <div className="ws-tree">
           {ws.tree ? (
             <FileTree
@@ -284,10 +515,7 @@ function WorkspaceView({
               </button>
             </p>
           )}
-          {showOverview && ws.overview && (
-            <Overview data={ws.overview} onOpen={(p, l) => ws.openFile(p, l)} />
-          )}
-          {showOverview && ws.loading && <Skeleton lines={6} />}
+          {!entry && (ws.loading ? <Skeleton lines={6} /> : empty?.({ openFiles: () => setTreeOpen(true) }))}
           {entry && ws.file.status === 'loading' && <Skeleton lines={10} />}
           {entry && ws.file.status === 'error' && ws.file.error && (
             <ErrorState
@@ -300,34 +528,38 @@ function WorkspaceView({
           {entry && fileData && ws.file.status === 'ready' && (
             <div className="viewer-wrap">
               <div className="viewer-head">
-                <span className="mono">{fileData.path}</span>
+                <span className="mono" title={fileData.path}>
+                  {fileData.path}
+                </span>
                 {!fileData.analysable && (
                   <span className="tag tag-warn" title="Shown for reading; no verified relations.">
                     not analysed
                   </span>
                 )}
                 {fileData.generated && <span className="tag tag-warn">generated</span>}
-                {bookmarkTarget && (
-                  <BookmarkButton
-                    repositoryId={bookmarkTarget.repositoryId}
-                    commitSha={bookmarkTarget.commitSha}
-                    stop={{
-                      path: fileData.path,
-                      startLine: entry.expl?.selection.startLine ?? entry.line,
-                      endLine: entry.expl?.selection.endLine ?? entry.line,
-                      symbolKey: entry.expl?.relations?.symbol?.key ?? entry.relations?.symbol?.key ?? null,
-                      label: entry.label,
-                    }}
-                  />
-                )}
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  onClick={() => viewer.current?.focus()}
-                  aria-label="Focus the code"
-                >
-                  Focus code
-                </button>
+                <span className="viewer-tools">
+                  {bookmarkTarget && (
+                    <BookmarkButton
+                      repositoryId={bookmarkTarget.repositoryId}
+                      commitSha={bookmarkTarget.commitSha}
+                      stop={{
+                        path: fileData.path,
+                        startLine: entry.expl?.selection.startLine ?? entry.line,
+                        endLine: entry.expl?.selection.endLine ?? entry.line,
+                        symbolKey: entry.expl?.relations?.symbol?.key ?? entry.relations?.symbol?.key ?? null,
+                        label: entry.label,
+                      }}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-small btn-quiet"
+                    onClick={() => viewer.current?.focus()}
+                    aria-label="Focus the code"
+                  >
+                    Focus code
+                  </button>
+                </span>
               </div>
               {fileData.truncated && (
                 <p className="note">Showing the first 2,000 of {fileData.lines.toLocaleString()} lines.</p>
@@ -342,6 +574,7 @@ function WorkspaceView({
                 scrollKey={entry.id}
                 onSelect={(sel, at) => setAnchor(sel && at ? { sel, at } : null)}
                 onExplainKey={explainCurrent}
+                {...(onCursor ? { onCursor } : {})}
               />
             </div>
           )}
@@ -359,6 +592,8 @@ function WorkspaceView({
             </button>
           )}
         </main>
+        {explore && <div className="ws-fexpl">{fileExpl}</div>}
+        {explore && <div className="ws-graph">{graph}</div>}
 
         <div className="ws-panel">
           <button type="button" className="sheet-close btn btn-small" onClick={() => setSheet(false)}>
@@ -375,29 +610,172 @@ function WorkspaceView({
 function SaveStatus({ ws }: { ws: WorkspaceState }) {
   if (ws.persistence === 'error')
     return (
-      <span className="muted small" role="status">
+      <span className="status status-error" role="status">
+        <span className="glyph" aria-hidden="true">
+          ✕
+        </span>
         Couldn't save your place
       </span>
     );
   if (ws.persistence === 'saving')
     return (
-      <span className="muted small" role="status">
+      <span className="status status-progress" role="status">
+        <span className="glyph" aria-hidden="true">
+          ◐
+        </span>
         Saving your place…
       </span>
     );
   if (ws.persistence === 'saved' && ws.entry)
     return (
-      <span className="muted small" role="status">
+      <span className="status status-success" role="status">
+        <span className="glyph" aria-hidden="true">
+          ✓
+        </span>
         Place saved
       </span>
     );
   return null;
 }
 
+/** The Learn home in the guide column: continue, learning paths, the tour, or learn at your own pace. */
+function LearnHome({
+  learning,
+  paths,
+  pathsError,
+  tour,
+  onStartPath,
+  onStartTour,
+}: {
+  learning: WorkspaceState;
+  paths: PathsView | null;
+  pathsError: boolean;
+  tour: TourView | null;
+  onStartPath: (id: string) => void;
+  onStartTour: () => void;
+}) {
+  return (
+    <section className="guide" aria-label="Learn">
+      <div className="guide-head">
+        <div>
+          <span className="eyebrow">Learn</span>
+          <h2>What do you want to learn?</h2>
+        </div>
+      </div>
+      {learning.entry && (
+        <div className="guide-card">
+          <span className="eyebrow">Where you left off</span>
+          <p>
+            <span className="mono">{learning.entry.label}</span>
+          </p>
+          <p className="small muted">
+            The code is open beside this. Select any part of it to explain it, or pick a path below.
+          </p>
+        </div>
+      )}
+      <div className="guide-block">
+        <h3>Learning paths</h3>
+        <PathList view={paths} error={pathsError} onOpen={onStartPath} headingLevel={3} />
+      </div>
+      {tour && tour.stops.length > 0 && (
+        <div className="guide-block">
+          <h3>Guided tour</h3>
+          <p className="small muted">
+            {tour.stops.length} stops through the most important code, in order, each with the reason it
+            matters.
+          </p>
+          <button type="button" className="btn btn-small" onClick={onStartTour}>
+            Take the guided tour
+          </button>
+        </div>
+      )}
+      <div className="guide-block">
+        <h3>At your own pace</h3>
+        <p className="small muted">
+          Open any file (Files, or press <kbd>T</kbd>), select code, and press <kbd>E</kbd> to explain it.
+          Your place is saved as you go.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** Explore's start page (no code open yet): real starting points instead of a repeat of the project overview. */
+function ExploreStart({
+  ws,
+  snapshotId,
+  repositoryId,
+  onWalk,
+}: {
+  ws: WorkspaceState;
+  snapshotId: string;
+  repositoryId: string;
+  onWalk: (flowId: string) => void;
+}) {
+  const o = ws.overview;
+  const starts = o?.startingPoints ?? [];
+  const entries = (o?.facts.entryPoints ?? []).filter((p) => !starts.some((s) => s.path === p));
+  return (
+    <div className="viewer-empty">
+      <span className="eyebrow">Explore</span>
+      <h2>Start investigating</h2>
+      <p className="muted">
+        Choose a file on the left (press <kbd>/</kbd> to filter), or begin from one of these. Select any code
+        and press <kbd>E</kbd> to see what it does and what it connects to.
+      </p>
+      {(starts.length > 0 || entries.length > 0) && (
+        <section className="section" aria-labelledby="ex-start-h">
+          <h3 id="ex-start-h">Starting points</h3>
+          <ul className="bare-list stack">
+            {starts.map((s, i) => (
+              <li key={`s${i}`}>
+                <button
+                  type="button"
+                  className="code-cite"
+                  onClick={() => ws.navigate(s.path, s.line, s.label)}
+                >
+                  <span>{s.label}</span>
+                  <span className="path">
+                    {s.path}:{s.line}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {entries.map((p) => (
+              <li key={p}>
+                <button type="button" className="code-cite" onClick={() => ws.openFile(p)}>
+                  <span>Entry point</span>
+                  <span className="path">{p}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <FlowList snapshotId={snapshotId} onWalk={onWalk} compact />
+      <Bookmarks repositoryId={repositoryId} compact onOpen={(p, l, label) => ws.navigate(p, l, label)} />
+      <section className="section" aria-labelledby="ex-keys-h">
+        <h3 id="ex-keys-h">Keyboard</h3>
+        <ul className="plain-list small muted">
+          <li>
+            <kbd>/</kbd> filter files · <kbd>T</kbd> show or hide files
+          </li>
+          <li>
+            <kbd>E</kbd> explain the selection or the name under the cursor
+          </li>
+          <li>
+            <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd> back and forward along your trail
+          </li>
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 /**
- * The repository workspace (P2.2): one header and mode navigation over shared state. Learn and Explore are separate
- * tracks, each restored from the server, so exploring never moves the learning position and "Return to learning"
- * goes back to the exact stop. Project and Validate read the same state.
+ * The repository workspace (P2.2): one top bar (project switcher, modes) over shared state. Learn and Explore are
+ * separate tracks, each restored from the server, so exploring never moves the learning position and "Return to
+ * learning" goes back to the exact stop. Project and Validate read the same state.
  */
 function Loaded({
   snap,
@@ -411,8 +789,8 @@ function Loaded({
 }: {
   snap: SnapshotView;
   mode: Mode;
-  depth: import('@kyc/contracts').Depth;
-  setDepth: (d: import('@kyc/contracts').Depth) => void;
+  depth: Depth;
+  setDepth: (d: Depth) => void;
   health: ReturnType<typeof useHealth>;
   initial: { path: string | null; line: number | null };
   onUrl: (path: string | null, line: number | null) => void;
@@ -423,74 +801,100 @@ function Loaded({
   const go = (m: Mode) => nav(`/r/${snap.id}/${m}${share ? `?share=${encodeURIComponent(share)}` : ''}`);
   const target = { id: snap.id, repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const learning = useWorkspace(target, 'learning');
-  const [touring, setTouring] = useState(false);
-  const [flowId, setFlowId] = useState<string | null>(null);
-  const [pathId, setPathId] = useState<string | null>(null);
-  const bookmarkTarget = { repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const exploration = useWorkspace(target, 'exploration', initial);
+  const [guide, setGuide] = useLearnGuide(snap.repositoryId);
+  const [flowId, setFlowIdRaw] = useState<string | null>(null);
+  const [graphView, setGraphView] = useState<GraphView>('architecture');
+  const [drill, setDrill] = useState<Drill>({ level: 'app' });
+  const setFlowId = (id: string | null) => {
+    setFlowIdRaw(id);
+    if (id) setGraphView('flows');
+  };
+  const paths = usePaths(snap.id);
+  const tour = useTour(snap.id);
+  const bookmarkTarget = { repositoryId: snap.repositoryId, commitSha: snap.commitSha };
+  const name = repoName(snap.repository);
+
+  useEffect(() => {
+    document.title = `${name} · ${mode[0]!.toUpperCase()}${mode.slice(1)} · Know Your Code`;
+    return () => {
+      document.title = 'Know Your Code';
+    };
+  }, [name, mode]);
+
+  const startPath = (id: string) => {
+    setGuide({ kind: 'path', id });
+    go('learn');
+  };
+  const startTour = () => {
+    setGuide({ kind: 'tour' });
+    go('learn');
+  };
+  const exploreAt = (p: string, l: number, label: string) => {
+    exploration.navigate(p, l, label);
+    go('explore');
+  };
 
   return (
     <div className="page workspace-page">
       <Header>
-        <span className="repo-name" title={`${snap.repository.owner}/${snap.repository.name}`}>
-          {snap.repository.owner}/{snap.repository.name}
-        </span>
-        {snap.status === 'ready_partial' && (
-          <span className="tag tag-warn" title="Some files couldn't be analysed. See the overview.">
-            partial
-          </span>
-        )}
+        <RepoMenu
+          repositoryId={snap.repositoryId}
+          snapshotId={snap.id}
+          name={name}
+          partial={snap.status === 'ready_partial'}
+          onDeleted={onDeleted}
+        />
         <ModeNav snapshotId={snap.id} />
-        <RepoMenu repositoryId={snap.repositoryId} onDeleted={onDeleted} />
       </Header>
       <AiStatusBanner health={health} />
       {mode === 'project' && (
-        <ProjectMode
-          learning={learning}
-          overview={learning.overview}
-          onLearnAt={(p, l) => {
-            learning.openFile(p, l);
-            go('learn');
-          }}
-          onContinue={() => go('learn')}
-        >
-          <ArchitectureMap
-            snapshotId={snap.id}
-            onOpenFile={(p) => {
-              exploration.openFile(p);
-              go('explore');
-            }}
-          />
-          <PathList
-            snapshotId={snap.id}
-            onOpen={(id) => {
-              setTouring(false);
-              setPathId(id);
+        <div style={{ overflow: 'auto', flex: 1 }}>
+          <ProjectMode
+            name={name}
+            learning={learning}
+            overview={learning.overview}
+            paths={paths.view}
+            pathsError={paths.error}
+            tour={tour}
+            onLearnAt={(p, l) => {
+              learning.openFile(p, l);
               go('learn');
             }}
-          />
-          <FlowList
-            snapshotId={snap.id}
-            onWalk={(id) => {
-              setFlowId(id);
-              go('explore');
-            }}
-          />
-          <Concepts
-            snapshotId={snap.id}
-            onOpen={(p, l, label) => {
-              exploration.navigate(p, l, label);
-              go('explore');
-            }}
-          />
-          <Bookmarks
-            repositoryId={snap.repositoryId}
-            onOpen={(p, l, label) => {
-              exploration.navigate(p, l, label);
-              go('explore');
-            }}
-          />
-        </ProjectMode>
+            onContinue={() => go('learn')}
+            onStartPath={startPath}
+            onStartTour={startTour}
+            onExplore={() => go('explore')}
+            map={
+              <ProjectMap
+                snapshotId={snap.id}
+                onExplore={() => go('explore')}
+                onExploreModule={(key) => {
+                  setGraphView('architecture');
+                  setDrill({ level: 'module', key });
+                  go('explore');
+                }}
+              />
+            }
+          >
+            <ArchitectureMap
+              snapshotId={snap.id}
+              onOpenFile={(p) => {
+                exploration.openFile(p);
+                go('explore');
+              }}
+            />
+            <FlowList
+              snapshotId={snap.id}
+              onWalk={(id) => {
+                setFlowId(id);
+                go('explore');
+              }}
+            />
+            <Concepts snapshotId={snap.id} onOpen={exploreAt} />
+            <Bookmarks repositoryId={snap.repositoryId} onOpen={exploreAt} />
+          </ProjectMode>
+        </div>
       )}
       {mode === 'learn' && (
         <WorkspaceView
@@ -498,78 +902,97 @@ function Loaded({
           depth={depth}
           setDepth={setDepth}
           bookmarkTarget={bookmarkTarget}
-          banner={(place) =>
-            pathId ? (
+          guide={(place) =>
+            guide.kind === 'path' ? (
               <PathPlayer
+                key={guide.id}
                 snapshotId={snap.id}
-                pathId={pathId}
+                pathId={guide.id}
                 place={place}
                 onGo={(p, l, label) => learning.navigate(p, l, label)}
-                onClose={() => setPathId(null)}
+                onClose={() => setGuide({ kind: 'home' })}
+                onProgress={paths.reload}
               />
-            ) : touring ? (
+            ) : guide.kind === 'tour' ? (
               <TourBar
                 snapshotId={snap.id}
                 currentPath={learning.entry?.path ?? null}
                 currentLine={learning.entry?.line ?? null}
                 onGo={(p, l, label) => learning.navigate(p, l, label)}
-                onClose={() => setTouring(false)}
+                onClose={() => setGuide({ kind: 'home' })}
               />
-            ) : null
+            ) : (
+              <LearnHome
+                learning={learning}
+                paths={paths.view}
+                pathsError={paths.error}
+                tour={tour}
+                onStartPath={(id) => setGuide({ kind: 'path', id })}
+                onStartTour={() => setGuide({ kind: 'tour' })}
+              />
+            )
           }
+          empty={({ openFiles }) => (
+            <div className="viewer-empty">
+              <EmptyState
+                title="The code you're learning appears here"
+                action={
+                  <button type="button" className="btn btn-small" onClick={openFiles}>
+                    Browse files
+                  </button>
+                }
+              >
+                Choose a path or the guided tour, and each step opens its code here. Or open any file and
+                select code to learn it at your own pace.
+              </EmptyState>
+            </div>
+          )}
           actions={
             <>
-              {!touring && !pathId && (
-                <button type="button" className="btn btn-small" onClick={() => setTouring(true)}>
-                  Guided tour
-                </button>
-              )}
+              <SaveStatus ws={learning} />
               <button type="button" className="btn btn-small" onClick={() => go('explore')}>
                 Explore freely
               </button>
-              <SaveStatus ws={learning} />
             </>
           }
         />
       )}
       {mode === 'explore' && (
-        <WorkspaceView
+        <ExploreBody
+          snap={snap}
           ws={exploration}
           depth={depth}
           setDepth={setDepth}
           onUrl={onUrl}
           bookmarkTarget={bookmarkTarget}
-          banner={
-            flowId ? (
-              <FlowWalkthrough
-                flowId={flowId}
-                canNarrate={!share}
-                onGo={(p, l, label) => exploration.navigate(p, l, label)}
-                onClose={() => setFlowId(null)}
-              />
-            ) : null
-          }
+          readOnly={!!share}
+          view={graphView}
+          onView={setGraphView}
+          drill={drill}
+          onDrill={setDrill}
+          flowId={flowId}
+          onFlow={setFlowId}
           actions={
             <>
+              <SaveStatus ws={exploration} />
               {learning.entry && (
-                <button type="button" className="btn btn-small btn-primary" onClick={() => go('learn')}>
+                <button type="button" className="btn btn-small" onClick={() => go('learn')}>
                   Return to learning
                 </button>
               )}
-              <SaveStatus ws={exploration} />
             </>
           }
         />
       )}
       {mode === 'validate' && (
-        <ValidateMode
-          repositoryId={snap.repositoryId}
-          tracks={[learning, exploration]}
-          onOpen={(p, l) => {
-            exploration.navigate(p, l, `${p.split('/').pop()}:${l}`);
-            go('explore');
-          }}
-        />
+        <div style={{ overflow: 'auto', flex: 1 }}>
+          <ValidateMode
+            repositoryId={snap.repositoryId}
+            tracks={[learning, exploration]}
+            onOpen={(p, l) => exploreAt(p, l, `${p.split('/').pop()}:${l}`)}
+            onLearn={() => go('learn')}
+          />
+        </div>
       )}
     </div>
   );

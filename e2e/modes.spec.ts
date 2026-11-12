@@ -22,7 +22,9 @@ async function explainLogin(page: Page) {
 test.describe('application shell and persistent workspace (P2.1, P2.2)', () => {
   test('all four modes are reachable from one shell', async ({ page }) => {
     await openWorkspace(page);
-    await expect(page).toHaveURL(/\/r\/[0-9a-f-]+\/explore/);
+    // An import lands on the project page: overview and a recommended next step first.
+    await expect(page).toHaveURL(/\/r\/[0-9a-f-]+\/project/);
+    await expect(page.getByRole('heading', { name: 'Start here' })).toBeVisible();
     for (const [mode, check] of [
       ['Project', () => expect(page.getByRole('heading', { name: 'Project overview' })).toBeVisible()],
       ['Learn', () => expect(page.getByRole('navigation', { name: 'Your trail' })).toBeVisible()],

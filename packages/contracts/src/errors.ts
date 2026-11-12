@@ -2,6 +2,7 @@ export const ERROR_CODES = {
   INVALID_URL: { http: 400, retryable: false },
   INVALID_SELECTION: { http: 400, retryable: false },
   INVALID_REQUEST: { http: 400, retryable: false },
+  INVALID_ARCHIVE: { http: 400, retryable: false },
   REPO_NOT_FOUND_OR_PRIVATE: { http: 404, retryable: false },
   FILE_NOT_FOUND: { http: 404, retryable: false },
   NOT_FOUND: { http: 404, retryable: false },
@@ -39,6 +40,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, { message: string; action?: strin
   },
   INVALID_SELECTION: { message: 'Select some code to explain.' },
   INVALID_REQUEST: { message: 'That request was not valid.' },
+  INVALID_ARCHIVE: {
+    message: "We couldn't read this ZIP file.",
+    action: 'Upload a .zip of your project folder.',
+  },
   REPO_NOT_FOUND_OR_PRIVATE: {
     message: 'We can only open public repositories right now.',
     action: 'Try a sample repository, or make a public copy of your project.',

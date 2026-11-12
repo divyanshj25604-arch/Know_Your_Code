@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { BookmarkView } from '@kyc/contracts';
 import { api, ApiError } from '../../api/client';
+import { EmptyState } from '../ui';
 
 /** The learner's bookmarks in this repository (P3.4). Opening one goes to it in Explore. */
 export function Bookmarks({
   repositoryId,
   onOpen,
+  compact,
 }: {
   repositoryId: string;
   onOpen: (path: string, line: number, label: string) => void;
+  /** A short list (Explore's start page) instead of the project section. */
+  compact?: boolean;
 }) {
   const [items, setItems] = useState<BookmarkView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,15 +25,22 @@ export function Bookmarks({
         e instanceof ApiError && e.status === 404 ? setItems([]) : setError('Could not load your bookmarks.'),
       );
   }, [repositoryId]);
-  if (error) return <p className="muted">{error}</p>;
-  if (!items || items.length === 0) return null;
+  if (compact && (!items || items.length === 0)) return null;
+  const H = compact ? 'h3' : 'h2';
   return (
-    <section className="sec" aria-labelledby="bm-h">
-      <h2 id="bm-h" className="panel-h">
+    <section className="section" id="bookmarks" aria-labelledby={compact ? 'bm-c-h' : 'bm-h'}>
+      <H id={compact ? 'bm-c-h' : 'bm-h'} className={compact ? undefined : 'section-h'}>
         Your bookmarks
-      </h2>
-      <ul className="plain-list">
-        {items.map((b) => (
+      </H>
+      {!compact && <p className="section-lede">Places in the code you saved to come back to.</p>}
+      {error && <p className="muted">{error}</p>}
+      {!error && items && items.length === 0 && (
+        <EmptyState title="No bookmarks yet">
+          While reading code in Learn or Explore, use Bookmark above the code to save the place.
+        </EmptyState>
+      )}
+      <ul className="start-list">
+        {(items ?? []).map((b) => (
           <li key={b.id}>
             <button
               type="button"
@@ -38,13 +49,13 @@ export function Bookmarks({
             >
               {b.label ?? b.path}
             </button>{' '}
-            <span className="mono muted small">
+            <span className="path">
               {b.path}
               {b.startLine ? `:${b.startLine}` : ''}
-            </span>{' '}
+            </span>
             <button
               type="button"
-              className="link small"
+              className="btn btn-small btn-quiet"
               aria-label={`Remove bookmark ${b.label ?? b.path}`}
               onClick={() =>
                 void api
@@ -93,6 +104,7 @@ export function BookmarkButton({
           .catch(() => setState('error'))
       }
     >
+      <span aria-hidden="true">{state === 'saved' ? '★' : '☆'}</span>
       {state === 'saved' ? 'Bookmarked' : state === 'error' ? "Couldn't bookmark" : 'Bookmark'}
     </button>
   );

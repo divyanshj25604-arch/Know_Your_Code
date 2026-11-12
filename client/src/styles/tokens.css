@@ -1,19 +1,92 @@
-/* Design tokens from docs/06 §H. Both themes meet WCAG 2.2 AA for text. */
-:root {
-  --bg: #ffffff;
-  --surface-1: #f6f8fa;
-  --surface-2: #eef1f4;
-  --border: #d5dbe1;
-  --text: #1b1f24;
-  --text-muted: #57606a;
-  --accent: #0f766e;
-  --accent-contrast: #ffffff;
-  --verified: #1a7f37;
-  --explained: #6639ba;
-  --warning: #7d4e00;
-  --danger: #cf222e;
-  --highlight: rgba(15, 118, 110, 0.14);
+/*
+ * Know Your Code design tokens (project-docs/08_Brand_Identity_Requirements.md, kit p.26–27).
+ * Three layers: primitives (fixed brand hex) → roles → component tokens. Components use roles and component tokens
+ * only, never primitives or raw hex. Dark is the default theme; [data-theme='light'] opts into the light theme.
+ * Contrast (WCAG 2.1, approximate): Paper on Ink Deep ~17.6:1, Slate Muted on Ink Deep ~7.4:1 and on Ink Raised ~5.7:1,
+ * Citation Teal on Ink Deep ~10:1, Ink Deep on Highlighter ~12.6:1; light: Ink on Paper ~16.7:1, #475569 on Paper ~7:1.
+ * The axe E2E (e2e/a11y.spec.ts) checks both themes.
+ */
+@import '@fontsource-variable/manrope/wght.css';
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght-italic.css';
 
+:root {
+  /* ---- primitives ---- */
+  --kyc-ink-deep: #0b1120;
+  --kyc-ink: #0f172a;
+  --kyc-ink-raised: #1e293b;
+  --kyc-paper: #faf7f0;
+  --kyc-paper-raised: #f2ede1;
+  --kyc-slate-muted: #94a3b8;
+  --kyc-slate-strong: #475569;
+  --kyc-slate-line: #cbd5e1;
+  --kyc-highlighter: #facc15;
+  --kyc-highlighter-hover: #fde047;
+  --kyc-citation-teal: #2dd4bf;
+  --kyc-citation-teal-light: #0d9488;
+  --kyc-success: #22c55e;
+  --kyc-warning: #fb923c;
+  --kyc-error: #f87171;
+  --kyc-info: #60a5fa;
+
+  /* ---- roles (dark, the default) ---- */
+  --kyc-bg: var(--kyc-ink-deep);
+  --kyc-surface: var(--kyc-ink);
+  --kyc-surface-raised: var(--kyc-ink-raised);
+  --kyc-text: var(--kyc-paper);
+  --kyc-text-muted: var(--kyc-slate-muted);
+  --kyc-border: var(--kyc-ink-raised);
+  --kyc-border-strong: #334155;
+  --kyc-border-control: var(--kyc-slate-muted);
+  --kyc-focus: var(--kyc-highlighter);
+  --kyc-citation: var(--kyc-citation-teal);
+  --kyc-citation-rule: var(--kyc-citation-teal);
+  --kyc-primary: var(--kyc-highlighter);
+  --kyc-primary-hover: var(--kyc-highlighter-hover);
+  --kyc-on-primary: var(--kyc-ink-deep);
+  --kyc-status-success: var(--kyc-success);
+  --kyc-status-warning: var(--kyc-warning);
+  --kyc-status-error: var(--kyc-error);
+  --kyc-status-info: var(--kyc-info);
+  --kyc-scrim: rgba(2, 6, 23, 0.72);
+
+  /* ---- component tokens ---- */
+  --kyc-button-bg: var(--kyc-surface);
+  --kyc-button-bg-hover: var(--kyc-surface-raised);
+  --kyc-button-border: var(--kyc-border-strong);
+  --kyc-button-text: var(--kyc-text);
+  --kyc-chip-bg: transparent;
+  --kyc-chip-border: var(--kyc-border-strong);
+  --kyc-code-bg: var(--kyc-ink-deep);
+  --kyc-code-gutter: var(--kyc-ink);
+  --kyc-code-text: #cbd5e1;
+  --kyc-code-selection: rgba(148, 163, 184, 0.28);
+  --kyc-code-range: rgba(250, 204, 21, 0.1);
+  --kyc-code-range-rule: rgba(250, 204, 21, 0.55);
+  --kyc-code-target-bg: var(--kyc-highlighter);
+  --kyc-code-target-text: var(--kyc-ink-deep);
+  /* Syntax on Ink (kit palette; yellow, teal, green, orange and red stay out of syntax). */
+  --kyc-syntax-keyword: #c4b5fd;
+  --kyc-syntax-function: #93c5fd;
+  --kyc-syntax-string: #f9a8d4;
+  --kyc-syntax-type: #a5b4fc;
+  --kyc-syntax-number: #a5b4fc;
+  --kyc-syntax-punct: #cbd5e1;
+  --kyc-syntax-comment: #94a3b8;
+
+  /* ---- type ---- */
+  --kyc-font-display: 'Manrope Variable', Manrope, system-ui, sans-serif;
+  --kyc-font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --kyc-font-code: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  --kyc-text-h1: 2rem; /* 32/40 in the app; Display 56 and H1 40 are for marketing pages */
+  --kyc-text-h2: 1.375rem; /* 22/28 */
+  --kyc-text-h3: 1.125rem; /* 18/24 */
+  --kyc-text-body: 1rem; /* 16/24 */
+  --kyc-text-small: 0.875rem; /* 14/20 */
+  --kyc-text-caption: 0.75rem; /* 12/16 */
+
+  /* ---- space, shape, layout ---- */
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
@@ -23,75 +96,49 @@
   --s7: 48px;
   --s8: 64px;
   --radius-control: 6px;
-  --radius-card: 10px;
-  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-code: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #0f1419;
-    --surface-1: #161b22;
-    --surface-2: #1f262e;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #9da7b1;
-    --accent: #2dd4bf;
-    --accent-contrast: #0f1419;
-    --verified: #3fb950;
-    --explained: #a371f7;
-    --warning: #d29922;
-    --danger: #f85149;
-    --highlight: rgba(45, 212, 191, 0.18);
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme='dark'] {
-  --bg: #0f1419;
-  --surface-1: #161b22;
-  --surface-2: #1f262e;
-  --border: #30363d;
-  --text: #e6edf3;
-  --text-muted: #9da7b1;
-  --accent: #2dd4bf;
-  --accent-contrast: #0f1419;
-  --verified: #3fb950;
-  --explained: #a371f7;
-  --warning: #d29922;
-  --danger: #f85149;
-  --highlight: rgba(45, 212, 191, 0.18);
+  --radius-container: 8px;
+  --topbar-h: 52px;
+  --content-max: 1120px;
+  --reading-max: 68ch;
+  --col-left: 300px;
+  --col-right: 420px;
   color-scheme: dark;
 }
 
-/* Syntax colours (both themes checked >= 4.5:1 against --bg / --surface-1). */
-:root {
-  --syn-keyword: #6639ba;
-  --syn-string: #0a3069;
-  --syn-comment: #57606a;
-  --syn-number: #0550ae;
-  --syn-function: #953800;
-  --syn-type: #116329;
-  --syn-punct: #57606a;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --syn-keyword: #ff7b72;
-    --syn-string: #a5d6ff;
-    --syn-comment: #9aa4ae;
-    --syn-number: #79c0ff;
-    --syn-function: #d2a8ff;
-    --syn-type: #7ee787;
-    --syn-punct: #9da7b1;
-  }
-}
-:root[data-theme='dark'] {
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-comment: #9aa4ae;
-  --syn-number: #79c0ff;
-  --syn-function: #d2a8ff;
-  --syn-type: #7ee787;
-  --syn-punct: #9da7b1;
+:root[data-theme='light'] {
+  --kyc-bg: var(--kyc-paper);
+  --kyc-surface: #ffffff;
+  --kyc-surface-raised: var(--kyc-paper-raised);
+  --kyc-text: var(--kyc-ink);
+  --kyc-text-muted: var(--kyc-slate-strong);
+  --kyc-border: #e2dccd;
+  --kyc-border-strong: var(--kyc-slate-line);
+  --kyc-border-control: #64748b;
+  /* Highlighter on Paper is 1.5:1, below the 3:1 a focus indicator needs: light mode rings in Ink. */
+  --kyc-focus: var(--kyc-ink);
+  /* Teal on Paper is prohibited for text: citations are Ink text with a teal rule in light mode. */
+  --kyc-citation: var(--kyc-ink);
+  --kyc-citation-rule: var(--kyc-citation-teal-light);
+  --kyc-status-success: #15803d;
+  --kyc-status-warning: #c2410c;
+  --kyc-status-error: #b91c1c;
+  --kyc-status-info: #1d4ed8;
+  --kyc-scrim: rgba(15, 23, 42, 0.45);
+  --kyc-button-bg: #ffffff;
+  --kyc-button-bg-hover: var(--kyc-paper-raised);
+  --kyc-button-border: var(--kyc-slate-line);
+  --kyc-code-bg: #ffffff;
+  --kyc-code-gutter: var(--kyc-paper);
+  --kyc-code-text: var(--kyc-ink);
+  --kyc-code-selection: rgba(71, 85, 105, 0.2);
+  --kyc-code-range: rgba(250, 204, 21, 0.18);
+  --kyc-code-range-rule: #a16207;
+  --kyc-syntax-keyword: #6d28d9;
+  --kyc-syntax-function: #1d4ed8;
+  --kyc-syntax-string: #be185d;
+  --kyc-syntax-type: #4338ca;
+  --kyc-syntax-number: #4338ca;
+  --kyc-syntax-punct: #334155;
+  --kyc-syntax-comment: #475569;
+  color-scheme: light;
 }

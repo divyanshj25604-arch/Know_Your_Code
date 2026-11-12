@@ -2,7 +2,27 @@
 
 *Recorded 2026-11-12 · source: `KnowYourCode-Brand-Kit-v1.0.pdf` (29 pages, November 2026, "v1.0 — for team review")*
 
-**Status: authoritative product requirement, not yet implemented.** The brand kit defines how KnowYourCode looks, sounds and behaves. Every product-facing UI decision must follow it. This document records the requirement and audits the current client against it. It does **not** claim the brand is implemented: as of this date the shipped UI predates the kit and conflicts with it in several places (section C). A dedicated brand implementation pass is required (section E). It is scheduled separately from the engineering roadmap and needs approval before it starts.
+**Status (updated 2026-11-12): authoritative product requirement, largely implemented in the client by the UX pass. See `19_UX_Implementation_Report.md` §5.** Implemented:
+
+- tokens (primitives, roles and component tokens);
+- dark-first themes;
+- Highlighter primary, selection and focus;
+- teal for evidence only;
+- semantic status colours;
+- self-hosted Manrope, Inter and JetBrains Mono;
+- the kit's syntax palette;
+- confidence shown by glyph, word and border.
+
+Still open:
+
+- the logo, favicon and icon assets (section D: not in the repository);
+- the "Verified / Likely / Not sure" wording (the UI still says "Explained");
+- a full copy pass;
+- a visual review in the running app.
+
+Sections B and C below describe the UI **before** that pass and are kept as the original audit.
+
+*Original status:* authoritative product requirement, not yet implemented. The brand kit defines how KnowYourCode looks, sounds and behaves. Every product-facing UI decision must follow it. This document records the requirement and audits the current client against it. It does **not** claim the brand is implemented: as of this date the shipped UI predates the kit and conflicts with it in several places (section C). A dedicated brand implementation pass is required (section E). It is scheduled separately from the engineering roadmap and needs approval before it starts.
 
 The PDF is the source; this file is a faithful summary for engineers. Where they differ, the PDF wins. The kit tags each specification **Measured** (from the approved logo drawing, the brief or a repeatable calculation), **Inferred** or **Proposed** (awaiting team approval). Those tags are preserved below where they matter.
 

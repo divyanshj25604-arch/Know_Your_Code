@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { openFile, openWorkspace } from './helpers';
+import { goExplore, openFile, openWorkspace } from './helpers';
 
 test.describe('responsive layouts (docs/06 §E)', () => {
   test('tablet: tree is a drawer', async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 800 });
     await openWorkspace(page);
+    await goExplore(page);
     await expect(page.getByRole('navigation', { name: 'Files' })).toBeHidden();
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Files' })).toBeVisible();
@@ -17,6 +18,10 @@ test.describe('responsive layouts (docs/06 §E)', () => {
     await page.goto('/');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await openWorkspace(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(
+      true,
+    ); // the project page fits too
+    await goExplore(page);
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await openFile(page, 'src/controllers/authController.js');
     await expect(page.locator('.cm-content')).toContainText('async function login');

@@ -85,16 +85,20 @@ export function CheckSection({
         </form>
       )}
       {check?.result?.points && check.result.points.length > 0 && (
-        <ul className="plain-list small" aria-label="Rubric">
+        <ul className="rubric" aria-label="Rubric">
           {check.result.points.map((p) => (
             <li key={p.point}>
               {p.met ? '✓' : '○'} {p.point}
+              <span className="sr-only">{p.met ? ' (covered)' : ' (missing)'}</span>
             </li>
           ))}
         </ul>
       )}
       {check?.result?.verdict && (
-        <p className="muted" role="status">
+        <p
+          className={`result ${check.result.verdict === 'correct' ? 'result-ok' : 'result-no'}`}
+          role="status"
+        >
           {check.result.verdict === 'correct'
             ? 'Correct.'
             : check.result.verdict === 'partly'

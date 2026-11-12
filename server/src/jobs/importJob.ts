@@ -15,9 +15,11 @@ import {
 } from '@kyc/core';
 import { GitHubClient } from '../ingestion/github';
 import { extractTarball, type ExtractLimits, type ExtractResult } from '../ingestion/extract';
+import { extractZip } from '../ingestion/zip';
 import { runAnalysis } from '../analysis/runner';
 import {
   getSnapshot,
+  loadUploadArchive,
   markFailed,
   markReady,
   setStages,
@@ -112,8 +114,18 @@ interface Fetched {
 const CONFIG_FILES = new Set(['tsconfig.json', 'jsconfig.json', 'package.json']);
 const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
-/** Stages 1–2: download the archive and extract, filter and redact it in one stream. Nothing is written yet. */
+/** No JavaScript or TypeScript worth analysing: the same rule for every source. */
+function assertSupported(extracted: ExtractResult) {
+  const analysableCount = extracted.files.filter((f) => f.analysable).length;
+  if (!extracted.files.some((f) => f.language !== null)) throw new KycError('UNSUPPORTED_LANGUAGE');
+  if (analysableCount === 0 && extracted.files.every((f) => f.language === null || f.generated)) {
+    throw new KycError('UNSUPPORTED_LANGUAGE');
+  }
+}
+
+/** Stages 1–2: fetch the archive (GitHub tarball or stored upload) and extract, filter and redact it. Nothing is written yet. */
 async function fetchAndExtract(ctx: RunContext): Promise<Fetched> {
+  if (ctx.snap.source === 'upload') return loadAndExtractUpload(ctx);
   const { deps, snap, stages, signal } = ctx;
   await stages.start('fetching');
   const handle = await deps.github.openTarball(
@@ -141,13 +153,26 @@ async function fetchAndExtract(ctx: RunContext): Promise<Fetched> {
     throw e;
   }
   ctx.checkAbort();
-  const analysableCount = extracted.files.filter((f) => f.analysable).length;
-  if (!extracted.files.some((f) => f.language !== null)) throw new KycError('UNSUPPORTED_LANGUAGE');
-  if (analysableCount === 0 && extracted.files.every((f) => f.language === null || f.generated)) {
-    throw new KycError('UNSUPPORTED_LANGUAGE');
-  }
+  assertSupported(extracted);
   await stages.done('filtering');
   return { extracted, commitSha: handle.commitSha, contentHash: hash.digest('hex') };
+}
+
+/** Stages 1–2 for an uploaded ZIP: read the stored archive (never GitHub) and extract it with the same rules. */
+async function loadAndExtractUpload(ctx: RunContext): Promise<Fetched> {
+  const { deps, snap, stages } = ctx;
+  await stages.start('fetching');
+  const archive = await loadUploadArchive(deps.db, snap.id);
+  if (!archive)
+    throw new KycError('INDEX_FAILED', 'The uploaded archive is no longer available. Upload it again.');
+  const contentHash = createHash('sha1').update(archive).digest('hex');
+  await stages.done('fetching');
+  await stages.start('filtering');
+  const extracted = await extractZip(archive, extractLimits(deps.config));
+  ctx.checkAbort();
+  assertSupported(extracted);
+  await stages.done('filtering');
+  return { extracted, commitSha: null, contentHash };
 }
 
 /** Stage 3: analyse the extracted (already redacted) text in the worker. Nothing is written yet. */

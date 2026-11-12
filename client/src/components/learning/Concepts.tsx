@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ConceptBody, ConceptIndex } from '@kyc/contracts';
 import { api } from '../../api/client';
-import { ProvenanceTag, Skeleton } from '../ui';
+import { EmptyState, ProvenanceTag, Skeleton } from '../ui';
 import { queries } from '../../state/queryCache';
 
 type Lesson = { loading: boolean; error: string | null; body: ConceptBody | null };
@@ -65,44 +65,55 @@ export function Concepts({
       });
   };
 
-  if (error) return <p className="muted">Concepts couldn't be loaded.</p>;
-  if (!index) return <Skeleton lines={3} />;
   return (
-    <section className="sec" aria-labelledby="concepts-h">
-      <h2 id="concepts-h" className="panel-h">
+    <section className="section" id="concepts" aria-labelledby="concepts-h">
+      <h2 id="concepts-h" className="section-h">
         Concepts in this code <ProvenanceTag kind="pattern" />
       </h2>
-      {index.concepts.length === 0 ? (
-        <p className="muted">
-          No concepts were recognised in this snapshot. Import it again if it was analysed earlier.
-        </p>
+      <p className="section-lede">
+        Programming ideas this code relies on, each with real examples from different files. Ask for a lesson
+        that teaches the idea from those examples.
+      </p>
+      {error ? (
+        <p className="muted">Concepts couldn't be loaded.</p>
+      ) : !index ? (
+        <Skeleton lines={3} />
+      ) : index.concepts.length === 0 ? (
+        <EmptyState title="No concepts recognised">
+          None were found in this snapshot. If it was analysed before concept detection, import it again.
+        </EmptyState>
       ) : (
         <ul className="arch-map">
           {index.concepts.map((c) => {
             const lesson = lessons[c.id];
             return (
               <li key={c.id} className="arch-node" aria-label={`Concept ${c.label}`}>
-                <strong>{c.label}</strong>{' '}
+                <h3 className="node-title">{c.label}</h3>
                 <span className="muted small">
                   {c.count} place{c.count === 1 ? '' : 's'} in {c.files} file{c.files === 1 ? '' : 's'}
                 </span>
-                <ul className="plain-list" aria-label={`Examples of ${c.label}`}>
+                <ul className="bare-list stack" aria-label={`Examples of ${c.label}`}>
                   {c.examples.map((e) => (
                     <li key={e.symbolId}>
                       <button
                         type="button"
-                        className="link mono small"
+                        className="code-cite"
                         onClick={() => onOpen(e.path, e.line, e.name)}
                       >
-                        {e.name} — {e.path}:{e.line}
+                        <span className="mono">{e.name}</span>
+                        <span className="path">
+                          {e.path}:{e.line}
+                        </span>
                       </button>
                     </li>
                   ))}
                 </ul>
                 {!lesson && (
-                  <button type="button" className="btn btn-quiet btn-small" onClick={() => teach(c.id)}>
-                    Teach me {c.label}
-                  </button>
+                  <div className="node-actions">
+                    <button type="button" className="btn btn-small" onClick={() => teach(c.id)}>
+                      Teach me {c.label}
+                    </button>
+                  </div>
                 )}
                 {lesson?.loading && (
                   <p className="muted small" role="status">
@@ -123,7 +134,7 @@ export function Concepts({
                           <li key={`${r.path}:${r.line}`}>
                             <button
                               type="button"
-                              className="link mono"
+                              className="chip chip-ref"
                               onClick={() => onOpen(r.path, r.line, c.label)}
                             >
                               {r.path}:{r.line}

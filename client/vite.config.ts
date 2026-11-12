@@ -22,7 +22,12 @@ export default defineConfig(({ mode }) => {
         '/api': { target: API, changeOrigin: false },
       },
     },
-    build: { outDir: 'dist', sourcemap: true },
+    build: {
+      outDir: 'dist',
+      sourcemap: true,
+      // Never inline fonts as data: URIs: the CSP (web and desktop) allows fonts only from 'self'.
+      assetsInlineLimit: (file: string) => (/\.(woff2?|ttf|otf)$/.test(file) ? false : undefined),
+    },
     test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'], globals: true, css: false },
   };
 });

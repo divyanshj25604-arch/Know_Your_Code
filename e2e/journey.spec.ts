@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { dblclickToken, openFile, openWorkspace } from './helpers';
+import { dblclickToken, goExplore, openFile, openWorkspace } from './helpers';
 
 test.describe('critical journey (deterministic mode: real server, ingestion, analysis, DB; test AI provider)', () => {
   test('paste a repo → read code → select a function → verified relations + explanation → follow a caller and come back → follow-up → concept → depth → optional check → feedback → delete', async ({
@@ -14,11 +14,11 @@ test.describe('critical journey (deterministic mode: real server, ingestion, ana
 
     // Landing and entry.
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Understand the code you build.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Understand the code you ship.' })).toBeVisible();
     await expect(
       page.getByText(/Test mode: explanations come from a deterministic test provider/),
     ).toBeVisible();
-    await page.getByRole('link', { name: 'Try with your repo' }).click();
+    await page.getByRole('link', { name: 'Try with your own repo' }).click();
 
     // Import with staged progress.
     await page.getByLabel('Public GitHub repository URL').fill('https://github.com/acme/notes-api');
@@ -42,14 +42,14 @@ test.describe('critical journey (deterministic mode: real server, ingestion, ana
     await expect(page.getByRole('button', { name: /^Explain/ })).toBeVisible();
     await page.getByRole('button', { name: /^Explain/ }).click();
 
-    // Verified relations (computed) appear; explanation sections are labelled Explained.
+    // Verified relations (computed) appear; explanation sections (the model's reading) are labelled Likely.
     const panel = page.locator('.ws-panel');
     await expect(panel.getByRole('heading', { name: 'login', level: 2 })).toBeVisible();
     await expect(panel.getByRole('heading', { name: /Connections/ })).toBeVisible();
     await expect(panel.getByRole('button', { name: /findUserByEmail/ })).toBeVisible();
     await expect(panel.getByText('POST /login route registration')).toBeVisible();
     await expect(panel.getByRole('heading', { name: /What it does/ })).toBeVisible({ timeout: 15_000 });
-    await expect(panel.getByText('✦ Explained').first()).toBeVisible();
+    await expect(panel.getByText('◐ Likely').first()).toBeVisible();
     await expect(panel.getByText('✓ Verified', { exact: false }).first()).toBeVisible();
 
     // Follow a callee: viewer jumps to the definition, trail grows, panel shows its relations.
@@ -111,10 +111,10 @@ test.describe('critical journey (deterministic mode: real server, ingestion, ana
 
     // Delete my data → home; the old link no longer works.
     const repoUrl = page.url().split('?')[0]!;
-    await page.getByText('Repository menu').click();
+    await page.getByRole('button', { name: /acme\/notes-api/ }).click(); // the project switcher
     await page.getByRole('button', { name: 'Delete my data' }).click();
     await page.getByRole('button', { name: 'Delete everything' }).click();
-    await expect(page.getByRole('heading', { name: 'Understand the code you build.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Understand the code you ship.' })).toBeVisible();
     await page.goto(repoUrl);
     await expect(page.getByRole('alert')).toBeVisible();
     expect(violations).toEqual([]);
@@ -137,6 +137,9 @@ test.describe('critical journey (deterministic mode: real server, ingestion, ana
 
   test('keyboard-only: tree → code → E explains the identifier under the cursor', async ({ page }) => {
     await openWorkspace(page);
+    await goExplore(page);
+    // In Explore the files are a drawer; T opens it from the keyboard.
+    await page.keyboard.press('t');
     const filter = page.getByLabel('Filter files by name');
     await filter.focus();
     await filter.fill('authController');

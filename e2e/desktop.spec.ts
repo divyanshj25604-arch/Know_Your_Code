@@ -93,7 +93,7 @@ test.describe('desktop shell (P4.1)', () => {
     await expectNoTokenInWebStorage(page);
 
     // Repository import through the existing cloud workflow, then the four modes.
-    await page.getByRole('link', { name: 'Try with your repo' }).click();
+    await page.getByRole('link', { name: 'Try with your own repo' }).click();
     await page.getByLabel('Public GitHub repository URL').fill('https://github.com/acme/notes-api');
     await page.getByRole('button', { name: 'Analyse repository' }).click();
     await expect(page.getByRole('heading', { name: 'Project overview' })).toBeVisible({ timeout: 30_000 });

@@ -36,8 +36,11 @@ All documentation lives in [`project-docs/`](project-docs/). Nothing else in the
 | `15_Phase_4_4_Completion_Report.md`                     | P4.4 secret detection: scope decision (deferred until private repos) and implementation plan                                                                          |
 | `16_Phase_4_5_Completion_Report.md`                     | P4.5 provider pricing and privacy copy audit, verified Groq facts (dated)                                                                                             |
 | `17_Phase_4_Final_Completion_Report.md`                 | Phase 4 summary: status of every acceptance criterion, test results, blocked dependencies, manual steps                                                               |
+| `18_UX_Flow_and_Information_Architecture.md`            | Personas and jobs, ranked UX audit, journeys A–E, information architecture, navigation model (three-pane rule), design-system summary, UX decisions                   |
+| `19_UX_Implementation_Report.md`                        | UX and brand pass: screens and components changed, brand compliance table, journeys, preserved flows, responsive/a11y, tests, limitations (visual review done in 20)  |
+| `20_Product_Direction_Realignment_Report.md`            | Realignment with the original PRD: requirement map, graph workspace (data inventory, what is verified vs derived), ZIP import, notes, tests, visual review, limits    |
 | `product-direction/ORIGINAL-PRD.md`                     | Original product requirements, UX and UI specification v1.0: vision, seven modules, MVP scope, journey, Explain This Line, visualisation, brand, acceptance criteria  |
-| `product-direction/reference-sketches/*.png`            | Wireframe sketches for the PRD: `landing-and-import.png`, `analysis-progress.png`, `explore-workspace.png`                                                            |
+| `product-direction/reference-sketches/*.png`            | Wireframe sketches for the PRD: `landing-and-import.png`, `explore-workspace.png` (no analysis-progress sketch is in the repo)                                        |
 
 Diagrams are PNGs in `project-docs/images/`. The same documents also exist as Claude Docs (shareable copies); the files in
 `project-docs/` are canonical.
@@ -76,7 +79,14 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
 - Identity (P1.2): `users` (anonymous or registered, email + scrypt password), opaque session tokens stored hashed in
   `user_sessions`; httpOnly cookie for the web, bearer token for desktop. Snapshot reads are owner-or-share-token
   (P1.5); strangers get 404. Cross-origin access only for `CORS_ALLOWED_ORIGINS`, bearer-only (P1.6).
-- Product UI must follow `project-docs/08_Brand_Identity_Requirements.md`; the brand pass is a separate, approved task.
+- Product UI must follow `project-docs/08_Brand_Identity_Requirements.md` (largely implemented by the UX pass, see 19) and the
+  navigation model in `18_UX_Flow_and_Information_Architecture.md` (imports land on Project; guide | code | explanation).
+  Where they conflict, `product-direction/ORIGINAL-PRD.md` wins: Explore is code + "What this file does" | graph |
+  explanation (see `20`). Graphs draw only stored or deterministically aggregated relationships; database access is
+  shown as Likely (inferred from the package name); unresolved calls are "Not sure" nodes with the reason.
+- Confidence wording is the kit's: Verified (parser), Likely (pattern match or model reading with citations), Not sure.
+- Import: public GitHub URLs or a ZIP upload (`POST /api/v1/uploads`, raw bytes, same job and limits; archive held in
+  `snapshot_uploads` until a terminal status). Private repositories and per-user GitHub tokens stay out of scope.
 - Reuse as-is: ingestion (`server/src/ingestion/*`), worker host (`analysis/runner.ts`), selection classifier, migrations,
   `FakeLlm`, UI primitives (`client/src/components/ui.tsx`).
 - Replace: anonymous `owners` identity, the fixed `buildContextPack` slot recipe, the five AI output schemas,
@@ -92,16 +102,18 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
   Express adapter and request-flow discovery (`analysis/express.ts`, `analysis/flows.ts`), learning-path generator
   (`learning/paths.ts`). Its tests own the sample-repository fixtures (`packages/core/tests/fixtures`).
 - `server/src/` — Fastify 5 API: `http/` (routes, auth routes, SSE, snapshot access, CORS and security), `auth/`
-  (identity, sessions, passwords, share tokens, anonymous-work claim), `ingestion/` (GitHub URL, tarball, extraction),
+  (identity, sessions, passwords, share tokens, anonymous-work claim), `ingestion/` (GitHub URL, tarball, ZIP reader `zip.ts`, shared extraction),
   `analysis/` (worker host only), `index/` (raw-SQL persistence incl. analysis runs, architecture, concepts, flows,
-  learning paths, tours, bookmarks), `retrieval/` (context pack),
+  learning paths, tours, bookmarks, file graph `fileGraph.ts`, graph annotations `annotations.ts`), `retrieval/`
+  (context pack),
   `ai/` (providers incl. streaming, capability registry `registry.ts` + `capabilities/*`, `executor.ts`, SQL `store.ts`,
   prompts, schemas, cost, orchestrating `AiService`), `jobs/` (in-process queue, transactional import
   pipeline, retention), `db/` (pool + `withTx`, migration runner, `migrations/`, operator `rollbacks/`), `config/`.
 - `server/tests/` — Vitest suites against a real Postgres, fixtures, fake GitHub, E2E server bootstrap.
 - `client/src/` — React 19 + Vite SPA: `pages/` (workspace under `/r/:id/:mode`), `components/` (`modes/`,
   `explanation/` presentational parts, `learning/` architecture map, concepts, bookmarks, tour, learning paths,
-  `flows/` flow explorer and walkthrough), `hooks/useWorkspace.ts` (one track), `state/` (branching trail, query cache,
+  `flows/` flow explorer and walkthrough, `graph/` SVG graph canvas and layered layout, `explore/` graph panel,
+  graph builders `graphModel.ts`, file explanation, notes, project map), `hooks/useWorkspace.ts` (one track), `hooks/useLearning.ts` (paths, tour, open Learn guide), `state/` (branching trail, query cache,
   explanation store), `api/` (`createApiClient`, base URL and auth strategy in `config.ts`), `styles/`.
 - `server/src/ops/` — operations: error reports and 5xx/job alerts (`monitor.ts`), single-instance worker lock
   (`instanceLock.ts`), database connectivity (`database.ts`).
@@ -113,7 +125,7 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
 - `e2e/` — Playwright specs (`live.spec.ts` needs `LIVE=1` and an API key; `desktop.spec.ts` serves the client from a
   second origin and stubs Tauri IPC).
 - `scripts/` — smoke test (`smoke.mjs`, covers all modes and auth), database backup and restore, measurement scripts.
-- `project-docs/` — the source-of-truth documents (00–17).
+- `project-docs/` — the source-of-truth documents (00–20) and `product-direction/`.
 
 ## Commands
 
@@ -155,6 +167,11 @@ scripts/db-backup.sh / db-restore.sh   # logical backup; restore into an empty d
 - Only the process holding the worker advisory lock runs imports (`server.ts`); tests use an unpaused runner.
 - Privacy copy comes from `HealthView.privacy` (`components/PrivacyFacts.tsx`); do not hard-code provider names,
   retention days, prices or provider data-handling claims in the UI.
+- Styles: components use the `--kyc-*` role and component tokens in `client/src/styles/tokens.css`, never raw hex. Dark
+  is the default theme. Highlighter (yellow) is only for the one primary action, the selected code line and focus; Citation
+  Teal only for evidence (file:line). Fonts are self-hosted (`@fontsource-variable/*`); `vite.config.ts` must keep fonts
+  out of `data:` URIs because the CSP is `font-src 'self'` (the journey E2E fails on any CSP violation).
+- E2E: imports land on the Project page; use `goExplore`/`openFile` from `e2e/helpers.ts` to reach the file tree.
 - Flow steps are evidence: a `verified` step must reference its stored call edge (enforced by the database), and
   anything not followed is an `unknown` step with a reason. Never add a step the analysis did not find.
 
@@ -166,7 +183,8 @@ Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Documen
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | 0 — Safety and evidence baseline | P0.1 config, P0.2 live AI baseline, P0.3 test gaps, P0.4 transactional imports                                         | P0.1, P0.3, P0.4 done; **P0.2 deferred to the tech team** (needs approved spend; runs after Phase 4's unblocked tasks)       |
 | 1 — Foundations                  | P1.1 core package, P1.2 identity, P1.3 stable keys, P1.4 learner schema, P1.5 snapshot authz, P1.6 API base URL + CORS | **Done** 2026-11-12, awaiting review (see `09_Phase_1_Completion_Report.md`)                                                 |
-| Brand pass (unscheduled)         | Implement `08_Brand_Identity_Requirements.md` section E                                                                | Not started; needs approval                                                                                                  |
+| Brand + UX pass                  | Implement `08` section E; UX redesign per `18`                                                                         | **Implemented** 2026-11-12, uncommitted; logo assets BLOCKED (see 19)                                                        |
+| PRD realignment                  | Graph workspace, ZIP import, orientation map, graph notes per `product-direction/`                                     | **Implemented** 2026-11-12, uncommitted (see `20`)                                                                           |
 | 2 — Restructure                  | P2.1 learner state, P2.2 app shell, P2.3 AI registry, P2.4 retrieval planner                                           | **Done** 2026-11-12, awaiting review; P2.3 real-model criteria blocked on P0.2 (see `10_Phase_2_Completion_Report.md`)       |
 | 3 — Six levels                   | P3.1 architecture, P3.2 flows, P3.3 concepts, P3.4 bookmarks/tours, P3.5 assessment, P3.6 walkthrough, P3.7 paths      | **Done** 2026-11-12, awaiting review; AI parts unverified on a real model until P0.2 (see `11_Phase_3_Completion_Report.md`) |
 | 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | **Implemented** 2026-11-12, committed (not pushed); deploy, signing, live eval BLOCKED; P4.4 deferred (see 17)               |
@@ -192,5 +210,15 @@ Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Documen
   alerts, backup/restore scripts, migration safety checks; AI evaluation harness and per-user budget reservations
   (migration 014); provider-neutral privacy copy and removal of retired Groq defaults. P4.4 deferred by scope.
   Fixed share-token signature malleability (canonical spelling only). Added `12`–`17` completion reports.
+- 2026-11-12 — UX and brand pass (uncommitted): brand tokens, dark-first theme, self-hosted fonts; imports land on
+  Project with one recommended next step; project switcher; Learn guide column (Learn home, paths, tour) beside code
+  and explanation; Explore start page and flow walkthrough column; Validate checkpoints and progress; onboarding steps.
+  Added `18_UX_Flow_and_Information_Architecture.md` and `19_UX_Implementation_Report.md`; updated `08` status.
 - 2026-11-12 — Added `project-docs/product-direction/`: the original PRD (`ORIGINAL-PRD.md`, v1.0) and its wireframe
   reference sketches.
+- 2026-11-12 — Product direction realignment (uncommitted): Explore is code + "What this file does" | interactive SVG
+  graph (architecture drill-down, file dependencies, function relationships, request flows) | explanation, synchronised
+  both ways; graph notes (migration 016 `annotations`, owner-only routes); ZIP import (migration 015, `zip.ts`, shared
+  `EntryCollector`); file-graph and file-outline read routes; Project opens with an interactive architecture map;
+  import onboarding splits GitHub and ZIP; stage task lists; confidence wording Verified / Likely / Not sure; CORS
+  allows PATCH. Added `20_Product_Direction_Realignment_Report.md`.

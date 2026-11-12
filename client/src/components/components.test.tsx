@@ -123,7 +123,7 @@ describe('RelationList', () => {
     await user.click(screen.getByRole('button', { name: /findUser/ }));
     expect(onNav).toHaveBeenCalledWith('svc.js', 7, 'findUser', 'f');
     const tags = screen.getAllByText((_, el) => el?.classList.contains('tag') ?? false);
-    expect(tags.map((t) => t.textContent)).toEqual(['✓ Verified', '✓ Verified (pattern)', '✓ Verified']);
+    expect(tags.map((t) => t.textContent)).toEqual(['✓ Verified', '◐ Likely', '✓ Verified']);
   });
 
   it('explains why something cannot be followed, in plain words, only when asked', async () => {
@@ -185,9 +185,14 @@ describe('small components', () => {
       <>
         <ProvenanceTag kind="verified" />
         <ProvenanceTag kind="explained" />
+        <ProvenanceTag kind="pattern" />
+        <ProvenanceTag kind="unknown" />
       </>,
     );
+    // The brand kit's three states: Verified (parser), Likely (pattern or model, with citations), Not sure.
     expect(container.querySelector('.tag-verified')).toHaveTextContent('✓ Verified');
-    expect(container.querySelector('.tag-explained')).toHaveTextContent('✦ Explained');
+    expect(container.querySelector('.tag-explained')).toHaveTextContent('◐ Likely');
+    expect(container.querySelector('.tag-pattern')).toHaveTextContent('◐ Likely');
+    expect(container.querySelector('.tag-unknown')).toHaveTextContent('? Not sure');
   });
 });

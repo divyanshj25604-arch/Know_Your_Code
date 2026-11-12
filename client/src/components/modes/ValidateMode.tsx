@@ -6,7 +6,7 @@ import { explStateOf, loadExplanation } from '../../state/explanations';
 import type { Workspace } from '../../hooks/useWorkspace';
 import { CheckSection } from '../explanation/CheckSection';
 import { ExplanationSections } from '../explanation/ExplanationSections';
-import { ErrorState, Skeleton } from '../ui';
+import { EmptyState, ErrorState, PageHeader, ProgressMeter, Skeleton } from '../ui';
 
 type Check = ExplState['check'];
 
@@ -14,11 +14,13 @@ type Check = ExplState['check'];
 function ValidateItem({
   explanationId,
   label,
+  where,
   onOpen,
   onAnswered,
 }: {
   explanationId: string;
   label: string;
+  where: string;
   onOpen: (path: string, line: number) => void;
   onAnswered: () => void;
 }) {
@@ -63,7 +65,11 @@ function ValidateItem({
   return (
     <li className="validate-item">
       <details>
-        <summary className="panel-h">{label}</summary>
+        <summary>
+          <span>{label}</span>
+          <span className="path small">{where}</span>
+          <span className="sr-only">(show the explanation)</span>
+        </summary>
         {error && <ErrorState code={error.code} message={error.message} />}
         {!stored && !error && <Skeleton lines={3} />}
         {stored && <ExplanationSections ex={explStateOf(stored, label)} onOpenRef={onOpen} />}
@@ -104,83 +110,120 @@ function Results({ repositoryId, refreshKey }: { repositoryId: string; refreshKe
       );
   }, [repositoryId, refreshKey]);
   if (error) return <p className="muted">{error}</p>;
-  if (!r || r.checks.length === 0) return null;
-  const s = r.summary;
+  const s = r?.summary;
   return (
-    <section className="sec" aria-labelledby="results-h">
-      <h2 id="results-h" className="panel-h">
+    <section className="card" aria-labelledby="results-h">
+      <h2 id="results-h" className="card-h">
         Your results
       </h2>
-      <p>
-        {s.attempted} of {s.checks} checks answered · {s.correct} correct
-        {s.averageScore !== null ? ` · average score ${Math.round(s.averageScore * 100)}%` : ''}
-      </p>
-      <ul className="plain-list">
-        {r.checks.map((c) => (
-          <li key={c.checkId} className="validate-item">
-            <p>
-              <strong>{c.question}</strong>{' '}
-              <span className="tag">{c.format === 'open' ? 'own words' : 'choice'}</span>
-            </p>
-            {c.attempts.length === 0 ? (
-              <p className="muted small">Not answered yet.</p>
-            ) : (
-              <ol className="small" aria-label="Attempts, newest first">
-                {c.attempts.map((a) => (
-                  <li key={a.id}>
-                    {a.verdict === 'correct' ? 'Correct' : a.verdict === 'partly' ? 'Partly' : 'Not yet'} (
-                    {Math.round(a.score * 100)}%) · {new Date(a.createdAt).toLocaleString()}
-                    {a.answer.text ? <span className="muted"> · “{a.answer.text}”</span> : null}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </li>
-        ))}
-      </ul>
+      {!r || r.checks.length === 0 || !s ? (
+        <p className="muted small">
+          No answers yet. Each question you answer is recorded here with every attempt.
+        </p>
+      ) : (
+        <>
+          <ProgressMeter label="Checks answered" value={s.attempted} total={s.checks} />
+          <p className="small">
+            {s.attempted} of {s.checks} checks answered · {s.correct} correct
+            {s.averageScore !== null ? ` · average score ${Math.round(s.averageScore * 100)}%` : ''}
+          </p>
+          <ul className="bare-list">
+            {r.checks.map((c) => (
+              <li key={c.checkId} className="results-q">
+                <p>
+                  <strong>{c.question}</strong>{' '}
+                  <span className="tag">{c.format === 'open' ? 'own words' : 'choice'}</span>
+                </p>
+                {c.attempts.length === 0 ? (
+                  <p className="muted small">Not answered yet.</p>
+                ) : (
+                  <ol className="attempts small" aria-label="Attempts, newest first">
+                    {c.attempts.map((a) => (
+                      <li key={a.id}>
+                        <span aria-hidden="true">
+                          {a.verdict === 'correct' ? '✓ ' : a.verdict === 'partly' ? '◐ ' : '○ '}
+                        </span>
+                        {a.verdict === 'correct' ? 'Correct' : a.verdict === 'partly' ? 'Partly' : 'Not yet'}{' '}
+                        ({Math.round(a.score * 100)}%) ·{' '}
+                        <span className="muted">{new Date(a.createdAt).toLocaleString()}</span>
+                        {a.answer.text ? <span className="muted"> · “{a.answer.text}”</span> : null}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }
 
 /**
- * Validate mode (P2.2): check understanding of what has been explained so far, in the learning trail first, without
- * moving either the learning or the exploration position.
+ * Validate mode (P2.2, P3.5): a learning checkpoint. Every stop you explained (learning trail first) becomes a
+ * checkpoint with a quick question or an answer in your own words, graded with evidence. Your results and every
+ * attempt sit alongside. Neither the learning nor the exploration position moves.
  */
 export function ValidateMode({
   repositoryId,
   tracks,
   onOpen,
+  onLearn,
 }: {
   repositoryId: string;
   tracks: Workspace[];
   onOpen: (path: string, line: number) => void;
+  onLearn: () => void;
 }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const seen = new Set<string>();
   const items = tracks
     .flatMap((t) => t.explanations)
     .filter((x) => !seen.has(x.explanationId) && seen.add(x.explanationId));
+  const ready = tracks.every((t) => t.restored);
   return (
-    <main className="mode-page" id="main">
-      <h1 className="page-title">Check your understanding</h1>
-      {!tracks.every((t) => t.restored) && <Skeleton lines={4} />}
-      {tracks.every((t) => t.restored) && items.length === 0 && (
-        <p className="muted">
-          Nothing to check yet. Explain some code in Learn or Explore, then come back to test yourself.
-        </p>
-      )}
-      <Results repositoryId={repositoryId} refreshKey={refreshKey} />
-      <ul className="plain-list">
-        {items.map((x) => (
-          <ValidateItem
-            key={x.explanationId}
-            explanationId={x.explanationId}
-            label={x.label}
-            onOpen={onOpen}
-            onAnswered={() => setRefreshKey((k) => k + 1)}
-          />
-        ))}
-      </ul>
+    <main className="page-main" id="main">
+      <PageHeader
+        eyebrow="Validate"
+        title="Check your understanding"
+        lede="Each checkpoint is code you had explained. Answer a quick question, or explain it in your own words, and see which lines prove the answer."
+      />
+      <div className="validate-layout">
+        <section aria-labelledby="checkpoints-h">
+          <h2 id="checkpoints-h" className="section-h">
+            Checkpoints {ready && items.length > 0 && <span className="tag">{items.length}</span>}
+          </h2>
+          {!ready && <Skeleton lines={4} />}
+          {ready && items.length === 0 && (
+            <EmptyState
+              title="Nothing to check yet"
+              action={
+                <button type="button" className="btn btn-primary" onClick={onLearn}>
+                  Go to Learn
+                </button>
+              }
+            >
+              Explain some code in Learn or Explore, then come back to test yourself on it.
+            </EmptyState>
+          )}
+          <ul className="validate-list">
+            {items.map((x) => (
+              <ValidateItem
+                key={x.explanationId}
+                explanationId={x.explanationId}
+                label={x.label}
+                where={`${x.path}:${x.line}`}
+                onOpen={onOpen}
+                onAnswered={() => setRefreshKey((k) => k + 1)}
+              />
+            ))}
+          </ul>
+        </section>
+        <aside aria-label="Progress">
+          <Results repositoryId={repositoryId} refreshKey={refreshKey} />
+        </aside>
+      </div>
     </main>
   );
 }

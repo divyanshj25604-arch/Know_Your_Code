@@ -24,7 +24,7 @@ export async function claimableRepositories(db: Db, anonymousUserId: string): Pr
  * and the anonymous user's signed cookie (proof of being that browser).
  *
  * A repository only the anonymous user has simply changes owner; the composite foreign keys carry its explanations,
- * progress, bookmarks and positions with it. A repository both have is merged into the account's row:
+ * progress, bookmarks, annotations and positions with it. A repository both have is merged into the account's row:
  *  - a snapshot of a commit the account also has is dropped (code only) after its explanations are re-pointed to
  *    the account's snapshot and re-linked to the same symbols by stable key;
  *  - other snapshots, and history whose snapshot already expired, move across;
@@ -90,7 +90,7 @@ async function moveRepository(
   );
   const target = existing.rows[0]?.id;
   if (!target) {
-    // ON UPDATE CASCADE carries (repository_id, owner) into explanations, progress, bookmarks and positions.
+    // ON UPDATE CASCADE carries (repository_id, owner) into explanations, progress, bookmarks, annotations and positions.
     await c.query('UPDATE repositories SET owner_id=$2 WHERE id=$1', [repo.id, accountId]);
     const n = await c.query<{ n: number }>(
       'SELECT count(*)::int AS n FROM snapshots WHERE repository_id=$1',
@@ -107,6 +107,13 @@ async function moveRepository(
   );
   await mergeProgress(c, repo.id, anonId, target, accountId);
   await mergeBookmarks(c, repo.id, anonId, target, accountId);
+  // Annotations never collide (several notes per target are allowed): all of them move.
+  await c.query('UPDATE annotations SET user_id=$3, repository_id=$4 WHERE user_id=$1 AND repository_id=$2', [
+    anonId,
+    repo.id,
+    accountId,
+    target,
+  ]);
   await mergePositions(c, repo.id, anonId, target, accountId);
   await c.query('DELETE FROM repositories WHERE id=$1', [repo.id]);
   return moved;

@@ -25,15 +25,14 @@ describe('App routing', () => {
 
   it('renders the landing page with the product promise and a path to start', async () => {
     render(<App />);
-    expect(
-      await screen.findByRole('heading', { name: 'Understand the code you build.' }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Try with your repo' })).toHaveAttribute('href', '/start');
+    expect(await screen.findByRole('heading', { name: 'Understand the code you ship.' })).toBeInTheDocument();
+    expect(screen.getByText('Your repository becomes your textbook.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Try with your own repo' })).toHaveAttribute('href', '/start');
   });
 
   it('states what happens to the code on the landing page', async () => {
     render(<App />);
-    expect(await screen.findByText(/Public repositories only/)).toBeInTheDocument();
+    expect(await screen.findByText(/Public GitHub repositories or a ZIP you upload/)).toBeInTheDocument();
     expect(screen.getByText(/never executed/)).toBeInTheDocument();
   });
 

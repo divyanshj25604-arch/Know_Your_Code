@@ -168,10 +168,15 @@ export function ExplanationPanel({ ws, depth, onDepth, onOpenRef }: Props) {
   if (!entry || (!ex && !entry.relationSymbolId)) {
     return (
       <aside className="panel" aria-label="Explanation">
+        <span className="eyebrow">Explanation</span>
         <p className="panel-empty">Select any code to learn what it does.</p>
-        <p className="muted">
-          Drag over code, double-click a name, or put the cursor on it and press <kbd>E</kbd>.
-        </p>
+        <ol className="plain-list small muted">
+          <li>
+            Drag over code, double-click a name, or put the cursor on it and press <kbd>E</kbd>.
+          </li>
+          <li>Verified connections appear first: what calls it and what it calls.</li>
+          <li>Then a plain-language explanation, with every claim linked to a file and line.</li>
+        </ol>
       </aside>
     );
   }

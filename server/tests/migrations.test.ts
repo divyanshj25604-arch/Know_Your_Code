@@ -276,6 +276,8 @@ describe('Phase 1 migrations on existing data', () => {
       );
     const order = [...PHASE1].reverse();
     expect(order).toEqual([
+      '016_annotations.sql',
+      '015_uploads.sql',
       '014_ai_budget.sql',
       '013_learning_paths.sql',
       '012_flows.sql',

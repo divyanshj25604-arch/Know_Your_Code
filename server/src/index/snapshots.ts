@@ -1,11 +1,15 @@
-import type { StageInfo, SnapshotStatus, SnapshotView } from '@kyc/contracts';
+import type { RepositorySource, StageInfo, SnapshotStatus, SnapshotView } from '@kyc/contracts';
 import { withTx, type Db, type Queryable } from '../db/pool';
 
 export interface SnapshotRow {
   id: string;
   repositoryId: string;
+  /** GitHub owner; '' for uploads. */
   owner: string;
+  /** GitHub repository name, or the project name of an upload. */
   name: string;
+  /** Where the code comes from: an upload never touches GitHub. */
+  source: RepositorySource;
   ref: string | null;
   commitSha: string | null;
   status: SnapshotStatus;
@@ -22,7 +26,7 @@ export interface SnapshotRow {
 }
 
 const SELECT = `
-  SELECT s.id, s.repository_id, r.gh_owner, r.gh_name, r.owner_id, s.ref, s.commit_sha, s.status, s.stages, s.skipped,
+  SELECT s.id, s.repository_id, r.gh_owner, r.gh_name, r.source, r.owner_id, s.ref, s.commit_sha, s.status, s.stages, s.skipped,
          s.error_code, s.error_message, s.expires_at, s.created_at, s.overview, s.shares_revoked_at
   FROM snapshots s JOIN repositories r ON r.id = s.repository_id`;
 
@@ -31,6 +35,7 @@ interface Raw {
   repository_id: string;
   gh_owner: string;
   gh_name: string;
+  source: RepositorySource;
   owner_id: string;
   ref: string | null;
   commit_sha: string | null;
@@ -50,6 +55,7 @@ const map = (r: Raw): SnapshotRow => ({
   repositoryId: r.repository_id,
   owner: r.gh_owner,
   name: r.gh_name,
+  source: r.source,
   ownerId: r.owner_id,
   ref: r.ref,
   commitSha: r.commit_sha,
@@ -76,11 +82,12 @@ export async function upsertRepository(
   ownerId: string,
   ghOwner: string,
   ghName: string,
+  source: RepositorySource = 'github',
 ): Promise<string> {
   const r = await db.query<{ id: string }>(
-    `INSERT INTO repositories (owner_id, gh_owner, gh_name) VALUES ($1,$2,$3)
+    `INSERT INTO repositories (owner_id, gh_owner, gh_name, source) VALUES ($1,$2,$3,$4)
      ON CONFLICT (owner_id, gh_owner, gh_name) DO UPDATE SET gh_name = EXCLUDED.gh_name RETURNING id`,
-    [ownerId, ghOwner, ghName],
+    [ownerId, ghOwner, ghName, source],
   );
   return r.rows[0]!.id;
 }
@@ -140,6 +147,52 @@ export async function createSnapshot(
     return { id: row.id, outcome: 'requeued' as const };
   });
 }
+
+/** gh_owner of an uploaded repository: no GitHub owner is empty, so uploads never collide with GitHub rows. */
+export const UPLOAD_OWNER = '';
+
+/**
+ * Create a snapshot of an uploaded archive: the snapshot, its archive bytes and its job in one transaction, so a job
+ * can never exist without its archive. Uploads have no commit SHA, so every upload is a new snapshot.
+ */
+export async function createUploadSnapshot(
+  db: Db,
+  repositoryId: string,
+  archive: Buffer,
+  fileName: string | null,
+  retentionDays: number,
+): Promise<string> {
+  return withTx(db, async (c) => {
+    const ins = await c.query<{ id: string }>(
+      `INSERT INTO snapshots (repository_id, ref, commit_sha, status, stages, expires_at)
+       VALUES ($1,NULL,NULL,'queued',$2, now() + make_interval(days => $3)) RETURNING id`,
+      [repositoryId, JSON.stringify(INITIAL_STAGES), retentionDays],
+    );
+    const id = ins.rows[0]!.id;
+    await c.query(`INSERT INTO snapshot_uploads (snapshot_id, archive, file_name) VALUES ($1,$2,$3)`, [
+      id,
+      archive,
+      fileName,
+    ]);
+    await c.query(`INSERT INTO jobs (snapshot_id, state) VALUES ($1,'queued')`, [id]);
+    return id;
+  });
+}
+
+/**
+ * The uploaded archive of a snapshot, or null once it has been released. A trigger (migration 015) deletes it when
+ * the snapshot reaches ready, ready_partial or failed.
+ */
+export async function loadUploadArchive(db: Db, snapshotId: string): Promise<Buffer | null> {
+  const r = await db.query<{ archive: Buffer }>('SELECT archive FROM snapshot_uploads WHERE snapshot_id=$1', [
+    snapshotId,
+  ]);
+  return r.rows[0]?.archive ?? null;
+}
+
+/** How a repository appears in the deletion log: "owner/name" for GitHub, "upload:name" for uploads. */
+const repositoryRef = (owner: string, name: string) =>
+  owner === UPLOAD_OWNER ? `upload:${name}` : `${owner}/${name}`;
 
 /** A ready snapshot for the same repository and commit, if any (idempotent import, docs/01 FR-IMP-02). */
 export async function findReusable(db: Db, repositoryId: string, commitSha: string): Promise<string | null> {
@@ -221,7 +274,7 @@ export function toView(s: SnapshotRow): SnapshotView {
   return {
     id: s.id,
     repositoryId: s.repositoryId,
-    repository: { owner: s.owner, name: s.name },
+    repository: { owner: s.owner, name: s.name, source: s.source },
     commitSha: s.commitSha,
     status: expired && s.status !== 'failed' ? 'expired' : s.status,
     stages: s.stages,
@@ -249,7 +302,7 @@ export async function deleteRepository(
     );
     await c.query('DELETE FROM repositories WHERE id=$1', [repositoryId]); // cascades to everything derived
     await c.query(`INSERT INTO deletion_log (repository_ref, reason) VALUES ($1,$2)`, [
-      `${r.rows[0].gh_owner}/${r.rows[0].gh_name}`,
+      repositoryRef(r.rows[0].gh_owner, r.rows[0].gh_name),
       reason,
     ]);
     return n.rows[0]?.n ?? 0;
@@ -268,7 +321,7 @@ export async function deleteExpired(db: Db): Promise<number> {
       const d = await c.query('DELETE FROM snapshots WHERE id=$1 AND expires_at < now()', [row.id]);
       if (!d.rowCount) return;
       await c.query(`INSERT INTO deletion_log (repository_ref, reason) VALUES ($1,'retention')`, [
-        `${row.gh_owner}/${row.gh_name}`,
+        repositoryRef(row.gh_owner, row.gh_name),
       ]);
       deleted++;
     });
@@ -280,6 +333,7 @@ export async function deleteExpired(db: Db): Promise<number> {
        AND NOT EXISTS (SELECT 1 FROM explanations e WHERE e.repository_id = r.id)
        AND NOT EXISTS (SELECT 1 FROM learning_progress p WHERE p.repository_id = r.id)
        AND NOT EXISTS (SELECT 1 FROM bookmarks b WHERE b.repository_id = r.id)
+       AND NOT EXISTS (SELECT 1 FROM annotations n WHERE n.repository_id = r.id)
        AND NOT EXISTS (SELECT 1 FROM learner_positions l WHERE l.repository_id = r.id)`,
   );
   return deleted;

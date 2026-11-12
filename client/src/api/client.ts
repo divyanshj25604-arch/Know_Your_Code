@@ -1,4 +1,9 @@
 import {
+  type AnnotationCreate,
+  type AnnotationView,
+  type FileGraphView,
+  type FileOutlineView,
+  type RepositorySource,
   type ConceptIndex,
   type PathItemResult,
   type PathItemSubmit,
@@ -118,8 +123,15 @@ async function request<T>(
       // keepalive lets a request finish while the page unloads (saving the learner's place on reload).
       ...(keepalive ? { keepalive: true } : {}),
       credentials: t.credentials,
-      headers: t.headers(body !== undefined ? { 'content-type': 'application/json' } : {}),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      // A Blob (a ZIP upload) is sent as raw bytes; everything else as JSON.
+      headers: t.headers(
+        body instanceof Blob
+          ? { 'content-type': 'application/zip' }
+          : body !== undefined
+            ? { 'content-type': 'application/json' }
+            : {},
+      ),
+      body: body instanceof Blob ? body : body !== undefined ? JSON.stringify(body) : undefined,
       signal,
     });
   } catch (e) {
@@ -199,7 +211,7 @@ async function streamSse(
 export interface MySnapshot {
   snapshotId: string;
   repositoryId: string;
-  repository: { owner: string; name: string };
+  repository: { owner: string; name: string; source: RepositorySource };
   status: string;
   expiresAt: string;
 }
@@ -278,6 +290,19 @@ export function createApiClient(
 
     health: (signal?: AbortSignal) => call<HealthView>('GET', '/api/v1/health', undefined, signal),
     importRepo: (url: string) => call<ImportResponse>('POST', '/api/v1/repositories', { url }),
+    /** Import a repository from a ZIP archive (raw bytes; the file name names the project). */
+    importZip: (file: Blob, name: string) =>
+      call<ImportResponse>('POST', `/api/v1/uploads?name=${encodeURIComponent(name)}`, file),
+    fileGraph: (id: string) => call<FileGraphView>('GET', `/api/v1/snapshots/${id}/file-graph`),
+    fileOutline: (id: string, path: string) =>
+      call<FileOutlineView>('GET', `/api/v1/snapshots/${id}/file-outline?path=${encodeURIComponent(path)}`),
+    annotations: (repositoryId: string) =>
+      call<{ annotations: AnnotationView[] }>('GET', `/api/v1/repositories/${repositoryId}/annotations`),
+    createAnnotation: (repositoryId: string, a: AnnotationCreate) =>
+      call<AnnotationView>('POST', `/api/v1/repositories/${repositoryId}/annotations`, a),
+    updateAnnotation: (id: string, body: string) =>
+      call<AnnotationView>('PATCH', `/api/v1/annotations/${id}`, { body }),
+    deleteAnnotation: (id: string) => call<void>('DELETE', `/api/v1/annotations/${id}`),
     snapshot: (id: string, signal?: AbortSignal) =>
       call<SnapshotView>('GET', `/api/v1/snapshots/${id}`, undefined, signal),
     overview: (id: string) => call<Overview>('GET', `/api/v1/snapshots/${id}/overview`),

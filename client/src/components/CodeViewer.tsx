@@ -29,22 +29,28 @@ interface Props {
   scrollKey: string;
   onSelect: (sel: Selection | null, anchor: Anchor | null) => void;
   onExplainKey: () => void;
+  /** The line the cursor or selection starts on, whenever the user moves it (code → graph). */
+  onCursor?: (line: number) => void;
 }
 
 const kycHighlight = HighlightStyle.define([
   {
     tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword],
-    color: 'var(--syn-keyword)',
+    color: 'var(--kyc-syntax-keyword)',
   },
-  { tag: [t.string, t.special(t.string), t.regexp], color: 'var(--syn-string)' },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--syn-comment)', fontStyle: 'italic' },
-  { tag: [t.number, t.bool, t.null], color: 'var(--syn-number)' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: 'var(--kyc-syntax-string)' },
+  {
+    tag: [t.comment, t.lineComment, t.blockComment],
+    color: 'var(--kyc-syntax-comment)',
+    fontStyle: 'italic',
+  },
+  { tag: [t.number, t.bool, t.null], color: 'var(--kyc-syntax-number)' },
   {
     tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))],
-    color: 'var(--syn-function)',
+    color: 'var(--kyc-syntax-function)',
   },
-  { tag: [t.typeName, t.className, t.namespace], color: 'var(--syn-type)' },
-  { tag: [t.punctuation, t.bracket, t.operator], color: 'var(--syn-punct)' },
+  { tag: [t.typeName, t.className, t.namespace], color: 'var(--kyc-syntax-type)' },
+  { tag: [t.punctuation, t.bracket, t.operator], color: 'var(--kyc-syntax-punct)' },
 ]);
 
 const setMarks = StateEffect.define<{ target: number | null; range: { from: number; to: number } | null }>();
@@ -74,22 +80,39 @@ const markField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+// Brand (08 §A): the selected line is a full-width Highlighter fill with Ink Deep text and syntax colours off; the lines
+// an explanation is about keep a quieter tint with a Highlighter rule. One highlight per view.
 const theme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: 'var(--bg)', color: 'var(--text)', fontSize: '0.875rem' },
-  '.cm-scroller': { fontFamily: 'var(--font-code)', lineHeight: '1.6', overflow: 'auto' },
+  '&': {
+    height: '100%',
+    backgroundColor: 'var(--kyc-code-bg)',
+    color: 'var(--kyc-code-text)',
+    fontSize: '0.875rem',
+  },
+  '.cm-scroller': { fontFamily: 'var(--kyc-font-code)', lineHeight: '22px', overflow: 'auto' },
   '.cm-gutters': {
-    backgroundColor: 'var(--surface-1)',
-    color: 'var(--text-muted)',
+    backgroundColor: 'var(--kyc-code-gutter)',
+    color: 'var(--kyc-text-muted)',
     border: 'none',
-    borderRight: '1px solid var(--border)',
+    borderRight: '1px solid var(--kyc-border)',
   },
-  '.cm-content': { caretColor: 'var(--accent)' },
-  '&.cm-focused': { outline: '2px solid var(--accent)', outlineOffset: '-2px' },
+  '.cm-content': { caretColor: 'var(--kyc-text)' },
+  '.cm-cursor': { borderLeftColor: 'var(--kyc-text)' },
+  '&.cm-focused': { outline: '2px solid var(--kyc-focus)', outlineOffset: '-2px' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: 'var(--highlight) !important',
+    backgroundColor: 'var(--kyc-code-selection) !important',
   },
-  '.cm-kyc-target': { backgroundColor: 'var(--highlight)', boxShadow: 'inset 3px 0 0 var(--accent)' },
-  '.cm-kyc-range': { backgroundColor: 'var(--highlight)' },
+  '.cm-activeLine': { backgroundColor: 'transparent' },
+  '.cm-kyc-range': {
+    backgroundColor: 'var(--kyc-code-range)',
+    boxShadow: 'inset 3px 0 0 var(--kyc-code-range-rule)',
+  },
+  '.cm-kyc-target': {
+    backgroundColor: 'var(--kyc-code-target-bg) !important',
+    color: 'var(--kyc-code-target-text)',
+    boxShadow: 'none',
+  },
+  '.cm-kyc-target *': { color: 'var(--kyc-code-target-text) !important' },
 });
 
 function toApi(state: EditorState, from: number, to: number, path: string): Selection {
@@ -141,6 +164,8 @@ export const CodeViewer = forwardRef<ViewerHandle, Props>(function CodeViewer(pr
           EditorView.contentAttributes.of({
             'aria-label': `Source code: ${props.path}`,
             'aria-readonly': 'true',
+            // Already in the tab order (contenteditable); stated explicitly so the scroll area counts as focusable.
+            tabindex: '0',
           }),
           ...lang,
           syntaxHighlighting(kycHighlight),
@@ -156,7 +181,11 @@ export const CodeViewer = forwardRef<ViewerHandle, Props>(function CodeViewer(pr
             },
           ]),
           EditorView.updateListener.of((u) => {
-            if (u.selectionSet) report(u.view);
+            if (u.selectionSet) {
+              report(u.view);
+              if (u.transactions.some((tr) => tr.isUserEvent('select') || tr.isUserEvent('pointer')))
+                cb.current.onCursor?.(u.state.doc.lineAt(u.state.selection.main.from).number);
+            }
           }),
         ],
       }),
