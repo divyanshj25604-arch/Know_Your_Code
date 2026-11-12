@@ -257,3 +257,27 @@ export const LearnerPositionSchema = z
     message: 'state is too large',
   });
 export type LearnerPositionInput = z.input<typeof LearnerPositionSchema>;
+
+// ---------------------------------------------------------------- bookmarks (P3.4)
+
+export const BookmarkRequestSchema = z
+  .object({
+    path: z.string().min(1).max(1024),
+    symbolKey: z.string().min(1).max(4096).nullable().default(null),
+    startLine: z.number().int().min(1).nullable().default(null),
+    endLine: z.number().int().min(1).nullable().default(null),
+    commitSha: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .nullable()
+      .default(null),
+    label: z.string().trim().min(1).max(200).nullable().default(null),
+    note: z.string().max(2000).nullable().default(null),
+  })
+  .refine((b) => (b.startLine === null) === (b.endLine === null), {
+    message: 'startLine and endLine go together',
+  })
+  .refine((b) => b.startLine === null || b.endLine === null || b.endLine >= b.startLine, {
+    message: 'endLine precedes startLine',
+  });
+export type BookmarkRequest = z.input<typeof BookmarkRequestSchema>;

@@ -3,7 +3,10 @@ import {
   type AccountView,
   type AuthSessionResponse,
   type ClaimResponse,
+  type BookmarkRequest,
+  type BookmarkView,
   type ErrorCode,
+  type TourView,
   type ExplanationBody,
   type LearnerPositionInput,
   type LearnerPositionView,
@@ -302,6 +305,12 @@ export function createApiClient(
       onEvent: (m: SseMessage) => void,
       signal?: AbortSignal,
     ) => streamSse(t, '/api/v1/flows/explain', b, onEvent, signal),
+    bookmarks: (repositoryId: string) =>
+      call<{ bookmarks: BookmarkView[] }>('GET', `/api/v1/repositories/${repositoryId}/bookmarks`),
+    saveBookmark: (repositoryId: string, b: BookmarkRequest) =>
+      call<BookmarkView>('POST', `/api/v1/repositories/${repositoryId}/bookmarks`, b),
+    deleteBookmark: (id: string) => call<void>('DELETE', `/api/v1/bookmarks/${id}`),
+    tour: (snapshotId: string) => call<TourView>('GET', `/api/v1/snapshots/${snapshotId}/tour`),
     answerCheckText: (checkId: string, text: string) =>
       call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { text }),
     createCheck: (explanationId: string) =>

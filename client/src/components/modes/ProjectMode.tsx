@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Overview as OverviewData } from '@kyc/contracts';
 import { Overview } from '../Overview';
 import { ErrorState, Skeleton } from '../ui';
@@ -12,11 +13,14 @@ export function ProjectMode({
   overview,
   onLearnAt,
   onContinue,
+  children,
 }: {
   learning: Workspace;
   overview: OverviewData | null;
   onLearnAt: (path: string, line?: number) => void;
   onContinue: () => void;
+  /** Further project-wide sections (bookmarks, architecture, concepts, flows, paths). */
+  children?: ReactNode;
 }) {
   return (
     <main className="mode-page" id="main">
@@ -31,6 +35,7 @@ export function ProjectMode({
       {learning.loadError && (
         <ErrorState code={learning.loadError.code} message={learning.loadError.message} />
       )}
+      {children}
       {overview ? <Overview data={overview} onOpen={onLearnAt} /> : <Skeleton lines={6} />}
     </main>
   );

@@ -22,6 +22,7 @@ import {
   serialiseTrail,
   trailPath,
   trailReducer,
+  type Trail,
 } from '../state/trail';
 
 let counter = 0;
@@ -138,9 +139,22 @@ export function useWorkspace(
     };
   }, [snapshotId]);
 
-  // Restore the saved trail for this repository and track, then apply a deep link (?path=) on top of it.
+  // Restore the saved trail for this repository and track, then apply a deep link (?path=) on top of it. The
+  // decision uses the restored value itself: the trail ref only updates on the next render.
   useEffect(() => {
     let cancelled = false;
+    const applyDeepLink = (t: Trail | null) => {
+      if (!initial.path) return;
+      const here = t?.currentId ? t.nodes[t.currentId] : undefined;
+      if (here && here.entry.path === initial.path && here.entry.line === (initial.line ?? 1)) return;
+      push({
+        id: uid('h'),
+        path: initial.path,
+        line: initial.line ?? 1,
+        label: initial.path.split('/').pop() ?? initial.path,
+        expl: null,
+      });
+    };
     queries
       .get(`positions:${snap.repositoryId}`, () => api.positions(snap.repositoryId))
       .then((saved) => {
@@ -150,29 +164,14 @@ export function useWorkspace(
         // The baseline is what the server returned, so a deep-link stop added below is saved.
         lastPersisted.current = JSON.stringify(serialiseTrail(t ?? emptyTrail()));
         setPersistence('saved');
+        applyDeepLink(t);
+        setRestored(true);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
         // 404: not this user's repository (a shared snapshot): nothing to restore or save.
         setPersistence(e instanceof ApiError && e.status === 404 ? 'unavailable' : 'error');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        const here = trailRef.current.currentId
-          ? trailRef.current.nodes[trailRef.current.currentId]
-          : undefined;
-        if (
-          initial.path &&
-          !(here && here.entry.path === initial.path && here.entry.line === (initial.line ?? 1))
-        ) {
-          push({
-            id: uid('h'),
-            path: initial.path,
-            line: initial.line ?? 1,
-            label: initial.path.split('/').pop() ?? initial.path,
-            expl: null,
-          });
-        }
+        applyDeepLink(null);
         setRestored(true);
       });
     return () => {

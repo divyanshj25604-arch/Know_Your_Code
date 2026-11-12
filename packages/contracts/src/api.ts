@@ -196,3 +196,20 @@ export interface LearnerPositionsResponse {
   learning: LearnerPositionView | null;
   exploration: LearnerPositionView | null;
 }
+
+export interface BookmarkView {
+  id: string;
+  path: string;
+  symbolKey: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  commitSha: string | null;
+  label: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+/** A guided tour: an ordered set of stops computed from the code graph (P3.4). */
+export interface TourView {
+  stops: { path: string; line: number; title: string; why: string; symbolKey: string | null }[];
+}

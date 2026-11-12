@@ -15,6 +15,8 @@ import { useWorkspace, type Workspace as WorkspaceState } from '../hooks/useWork
 import { MODES, ModeNav, type Mode } from '../components/modes/ModeNav';
 import { ProjectMode } from '../components/modes/ProjectMode';
 import { ValidateMode } from '../components/modes/ValidateMode';
+import { BookmarkButton, Bookmarks } from '../components/learning/Bookmarks';
+import { TourBar } from '../components/learning/TourBar';
 import type { Selection } from '@kyc/contracts';
 
 export function Workspace() {
@@ -127,6 +129,8 @@ function WorkspaceView({
   setDepth,
   onUrl,
   actions,
+  banner,
+  bookmarkTarget,
 }: {
   ws: WorkspaceState;
   depth: import('@kyc/contracts').Depth;
@@ -135,6 +139,10 @@ function WorkspaceView({
   onUrl?: (path: string | null, line: number | null) => void;
   /** Mode-specific controls shown in the trail bar. */
   actions?: React.ReactNode;
+  /** Shown above the panes (the guided tour). */
+  banner?: React.ReactNode;
+  /** Where bookmarks are saved; absent when bookmarking is not possible. */
+  bookmarkTarget?: { repositoryId: string; commitSha: string | null };
 }) {
   const viewer = useRef<ViewerHandle>(null);
   const [anchor, setAnchor] = useState<{ sel: Selection & { text?: string }; at: Anchor } | null>(null);
@@ -233,6 +241,7 @@ function WorkspaceView({
         </button>
       </div>
 
+      {banner}
       <div className={`workspace${treeOpen ? ' tree-open' : ''}${sheet ? ' sheet-open' : ''}`}>
         <div className="ws-tree">
           {ws.tree ? (
@@ -284,6 +293,19 @@ function WorkspaceView({
                   </span>
                 )}
                 {fileData.generated && <span className="tag tag-warn">generated</span>}
+                {bookmarkTarget && (
+                  <BookmarkButton
+                    repositoryId={bookmarkTarget.repositoryId}
+                    commitSha={bookmarkTarget.commitSha}
+                    stop={{
+                      path: fileData.path,
+                      startLine: entry.expl?.selection.startLine ?? entry.line,
+                      endLine: entry.expl?.selection.endLine ?? entry.line,
+                      symbolKey: entry.expl?.relations?.symbol?.key ?? entry.relations?.symbol?.key ?? null,
+                      label: entry.label,
+                    }}
+                  />
+                )}
                 <button
                   type="button"
                   className="btn btn-small"
@@ -387,6 +409,8 @@ function Loaded({
   const go = (m: Mode) => nav(`/r/${snap.id}/${m}${share ? `?share=${encodeURIComponent(share)}` : ''}`);
   const target = { id: snap.id, repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const learning = useWorkspace(target, 'learning');
+  const [touring, setTouring] = useState(false);
+  const bookmarkTarget = { repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const exploration = useWorkspace(target, 'exploration', initial);
 
   return (
@@ -413,15 +437,40 @@ function Loaded({
             go('learn');
           }}
           onContinue={() => go('learn')}
-        />
+        >
+          <Bookmarks
+            repositoryId={snap.repositoryId}
+            onOpen={(p, l, label) => {
+              exploration.navigate(p, l, label);
+              go('explore');
+            }}
+          />
+        </ProjectMode>
       )}
       {mode === 'learn' && (
         <WorkspaceView
           ws={learning}
           depth={depth}
           setDepth={setDepth}
+          bookmarkTarget={bookmarkTarget}
+          banner={
+            touring ? (
+              <TourBar
+                snapshotId={snap.id}
+                currentPath={learning.entry?.path ?? null}
+                currentLine={learning.entry?.line ?? null}
+                onGo={(p, l, label) => learning.navigate(p, l, label)}
+                onClose={() => setTouring(false)}
+              />
+            ) : null
+          }
           actions={
             <>
+              {!touring && (
+                <button type="button" className="btn btn-small" onClick={() => setTouring(true)}>
+                  Guided tour
+                </button>
+              )}
               <button type="button" className="btn btn-small" onClick={() => go('explore')}>
                 Explore freely
               </button>
@@ -436,6 +485,7 @@ function Loaded({
           depth={depth}
           setDepth={setDepth}
           onUrl={onUrl}
+          bookmarkTarget={bookmarkTarget}
           actions={
             <>
               {learning.entry && (
