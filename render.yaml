@@ -1,0 +1,139 @@
+# Know Your Code on Render (P4.2). One always-on web service per environment (the API, the background import
+# worker and the built web client in one process) and one managed PostgreSQL per environment.
+# Selection rationale, secrets, backups, monitoring and the release procedure:
+#   project-docs/13_Phase_4_2_Completion_Report.md
+#
+# Not yet applied to a Render account: create the Blueprint from the dashboard (New > Blueprint) and fill every
+# `sync: false` variable there. Nothing secret is written in this file.
+#
+# Single instance: the import worker runs in-process. numInstances stays 1 and autoscaling stays off. A second
+# instance would only serve requests (the Postgres advisory-lock guard keeps one worker), see server/src/ops/.
+
+services:
+  - type: web
+    name: kyc-staging
+    runtime: node
+    plan: 1c-2g
+    region: frankfurt
+    branch: V1_KYC
+    autoDeployTrigger: commit
+    numInstances: 1
+    # devDependencies are needed to build (tsup, vite).
+    buildCommand: npm ci --include=dev && npm run build
+    # Migrations run before the new version takes traffic; if one fails the deploy fails and the old version keeps
+    # serving. (The server also checks migrations at start-up.)
+    preDeployCommand: node server/dist/db/migrate-cli.js
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    # An import in flight gets time to finish after SIGTERM; anything unfinished is re-queued by the next worker.
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: '26'
+      - key: DEPLOY_ENVIRONMENT
+        value: staging
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kyc-staging-db
+          property: connectionString
+      - key: COOKIE_SECRET
+        generateValue: true
+      # The service's public URL, e.g. https://kyc-staging.onrender.com (known after the first deploy).
+      - key: APP_BASE_URL
+        sync: false
+      - key: TRUST_PROXY
+        value: 'true'
+      # The desktop shell's origins (macOS/Linux and Windows).
+      - key: CORS_ALLOWED_ORIGINS
+        value: tauri://localhost,http://tauri.localhost
+      # Staging uses the deterministic test provider until P0.2 approves real-model spend: no billable calls.
+      - key: LLM_PROVIDER
+        value: fake
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: ANALYSIS_MAX_MEMORY_MB
+        value: '1024'
+      - key: IMPORT_CONCURRENCY
+        value: '1'
+      - key: LOG_LEVEL
+        value: info
+
+  - type: web
+    name: kyc-production
+    runtime: node
+    plan: 1c-2g
+    region: frankfurt
+    branch: main
+    # Production deploys are started by hand after staging passes the smoke test.
+    autoDeployTrigger: 'off'
+    numInstances: 1
+    buildCommand: npm ci --include=dev && npm run build
+    preDeployCommand: node server/dist/db/migrate-cli.js
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: '26'
+      - key: DEPLOY_ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kyc-production-db
+          property: connectionString
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: APP_BASE_URL
+        sync: false
+      - key: TRUST_PROXY
+        value: 'true'
+      - key: CORS_ALLOWED_ORIGINS
+        value: tauri://localhost,http://tauri.localhost
+      # anthropic once P0.2 is complete; the server refuses to start without the key and explicit prices.
+      - key: LLM_PROVIDER
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MODEL_FAST_INPUT_USD_PER_MTOK
+        sync: false
+      - key: MODEL_FAST_OUTPUT_USD_PER_MTOK
+        sync: false
+      - key: MODEL_STRONG_INPUT_USD_PER_MTOK
+        sync: false
+      - key: MODEL_STRONG_OUTPUT_USD_PER_MTOK
+        sync: false
+      - key: DAILY_SPEND_CAP_USD
+        sync: false
+      - key: AI_USER_DAILY_BUDGET_USD
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: ANALYSIS_MAX_MEMORY_MB
+        value: '1024'
+      - key: IMPORT_CONCURRENCY
+        value: '1'
+      - key: LOG_LEVEL
+        value: info
+
+databases:
+  # Paid plans: Render keeps continuous backups for point-in-time recovery (3 days on a Hobby workspace, 7 days on
+  # Pro or higher). Free databases have no backups and expire, so they are not used.
+  - name: kyc-staging-db
+    plan: 0.1c-256mb
+    region: frankfurt
+    postgresMajorVersion: '17'
+    # Reachable from Render services in the same region only (no public access).
+    ipAllowList: []
+  - name: kyc-production-db
+    plan: 0.5c-1g
+    region: frankfurt
+    postgresMajorVersion: '17'
+    ipAllowList: []

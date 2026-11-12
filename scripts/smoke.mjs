@@ -122,6 +122,55 @@ await step('file, selection and verified relations', async () => {
   }
   throw new Error('no function declaration found in the first 30 analysable files');
 });
+await step('project mode: architecture and learning paths', async () => {
+  const arch = await req('GET', `/api/v1/snapshots/${snapshotId}/architecture`);
+  must(arch.status === 200, `architecture: ${arch.status}`);
+  const paths = await req('GET', `/api/v1/snapshots/${snapshotId}/paths`);
+  must(paths.status === 200, `paths: ${paths.status}`);
+  const p = await paths.json();
+  return `${(await arch.json()).modules?.length ?? 0} modules, ${p.paths.length} learning paths`;
+});
+await step('learn and explore modes: concepts, flows, tour', async () => {
+  const c = await req('GET', `/api/v1/snapshots/${snapshotId}/concepts`);
+  const f = await req('GET', `/api/v1/snapshots/${snapshotId}/flows`);
+  const t = await req('GET', `/api/v1/snapshots/${snapshotId}/tour`);
+  must(c.status === 200 && f.status === 200 && t.status === 200, `${c.status}/${f.status}/${t.status}`);
+  const flows = await f.json();
+  return `${(await c.json()).concepts.length} concepts, ${flows.flows?.length ?? 0} flows (available: ${flows.available})`;
+});
+await step('validate mode: assessment history', async () => {
+  const r = await req('GET', `/api/v1/repositories/${repositoryId}/assessment`);
+  must(r.status === 200, `assessment: ${r.status}`);
+});
+await step('background jobs and AI usage (no model call)', async () => {
+  const h = await (await req('GET', '/api/v1/health')).json();
+  must(h.jobs === 'active', `job runner is ${h.jobs}: another instance holds the worker lock`);
+  const u = await req('GET', '/api/v1/ai/usage');
+  must(u.status === 200, `ai usage: ${u.status}`);
+  const usage = await u.json();
+  return `allowance $${usage.budgetUsd}/day, ${usage.requestLimit} calls; provider ${h.privacy?.aiProvider ?? 'none'}`;
+});
+await step('accounts: register, sign in with a bearer token, sign out', async () => {
+  const email = `smoke-${Date.now()}@example.invalid`;
+  const password = `smoke-${crypto.randomUUID()}`;
+  const post = (path, body, headers = {}) =>
+    fetch(base + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+  const reg = await post('/api/v1/auth/register', { email, password, transport: 'bearer' });
+  must(reg.status === 201, `register: ${reg.status}`);
+  const { token } = await reg.json();
+  must(typeof token === 'string', 'no bearer token returned');
+  const auth = { authorization: `Bearer ${token}` };
+  const me = await (await fetch(`${base}/api/v1/auth/me`, { headers: auth })).json();
+  must(me.user?.email === email, 'session not recognised');
+  must((await post('/api/v1/auth/logout', {}, auth)).status === 204, 'logout failed');
+  const after = await fetch(`${base}/api/v1/auth/me`, { headers: auth });
+  must(after.status === 401, `revoked token still accepted (${after.status})`);
+  return 'throwaway account created (example.invalid)';
+});
 if (flag('--ai')) {
   await step('explanation', async () => {
     const r = await req('POST', '/api/v1/explanations', {
