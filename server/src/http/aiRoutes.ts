@@ -17,6 +17,7 @@ import { getSnapshot } from '../index/snapshots';
 import type { Services } from '../services';
 
 const IdParam = z.object({ id: z.string().uuid() });
+const ConceptParam = IdParam.extend({ conceptId: z.string().regex(/^[a-zA-Z-]{1,40}$/) });
 
 export function registerAiRoutes(app: FastifyInstance, svc: Services) {
   const { db, config, limiter, ai, identity } = svc;
@@ -174,5 +175,33 @@ export function registerAiRoutes(app: FastifyInstance, svc: Services) {
     const { userId } = await identity.require(req, reply);
     if (!(await ownsRepository(db, userId, id))) throw new KycError('NOT_FOUND');
     return ai.results(userId, id);
+  });
+
+  /** Teach a concept with real examples from across the repository (P3.3). Owner only, like explanations. */
+  app.post('/api/v1/snapshots/:id/concepts/:conceptId/teach', async (req, reply) => {
+    const { id, conceptId } = parse(ConceptParam, req.params);
+    const { userId: ownerId } = await identity.require(req, reply);
+    limiter.check('explain', ownerId, config.RATE_EXPLANATIONS_PER_HOUR, 3600_000);
+    const snap = await getSnapshot(db, id);
+    if (!snap) throw new KycError('NOT_FOUND');
+    if (snap.ownerId !== ownerId)
+      throw new KycError(
+        'NOT_OWNER',
+        'Only the account that imported this repository can request explanations for it.',
+      );
+    assertUsable(snap);
+    const sse = openSse(req, reply);
+    try {
+      await ai.streamConcept({ ownerId, snapshotId: id, conceptId }, sse.emit, sse.signal);
+    } catch (e) {
+      if (!(e instanceof KycError))
+        req.log.error(
+          { err: { message: (e as Error).message, stack: (e as Error).stack } },
+          'concept failed',
+        );
+      sse.emitError(e);
+    } finally {
+      sse.end();
+    }
   });
 }

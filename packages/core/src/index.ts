@@ -21,6 +21,7 @@ export type {
 } from './analysis/types';
 export { classifySelection, lineStarts, toOffset, type Classified } from './analysis/classify';
 export { buildOverview, type OverviewInput } from './analysis/overview';
+export { detectConcepts } from './analysis/concepts';
 export {
   detectModules,
   type ArchitectureMap,
@@ -33,7 +34,7 @@ export { SYMBOL_KEY_VERSION, applyStableKeys, stableSymbolKeys } from './analysi
  * Identifies the analyser's output format. Bump when symbols, edges or names change for the same input, so analysis
  * runs made by different analysers can be told apart (recorded on every analysis run).
  */
-export const ANALYSER_VERSION = 'core-1';
+export const ANALYSER_VERSION = 'core-2';
 
 export {
   ANALYSABLE_EXT,
@@ -54,6 +55,7 @@ export { importItems, relationsOf } from './retrieval/relations';
 export { Pack, estimateTokens, isAllowed, mergeRanges, type AllowedRanges } from './retrieval/pack';
 export {
   planContext,
+  planExamples,
   type ContextPack,
   type EvidenceEdge,
   type FlowStep,

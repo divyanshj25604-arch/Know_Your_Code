@@ -11,13 +11,14 @@ import {
   type Relations,
   type Selection,
 } from '@kyc/contracts';
-import { KycError, relationsOf } from '@kyc/core';
+import { KycError, planExamples, relationsOf } from '@kyc/core';
 import type { Config } from '../config/env';
 import type { Db } from '../db/pool';
 import { getFileContent } from '../index/files';
 import { PgGraphStore } from '../index/graphStore';
 import { resolveSelection, type ResolvedSelection } from '../index/resolve';
 import { topSymbols } from '../index/symbols';
+import { conceptIndex } from '../index/concepts';
 import { buildContextPack } from '../retrieval/context';
 import { logLlmCall, modelFor } from './cost';
 import { Executor, type RunContext, type RunResult } from './executor';
@@ -394,6 +395,84 @@ export class AiService {
       messageId: id,
       refs: env.payload.inYourCode,
       uncertainty: [],
+      refsStripped: env.refsStripped,
+      evidence: summary(env),
+    });
+  }
+
+  // ------------------------------------------------------------------ teach a concept across the repository
+
+  /**
+   * Teach one concept using several real examples from different files (P3.3). The examples are streamed first;
+   * the lesson's references are checked against the example lines the model was shown. Stored as an explanation of
+   * kind "concept", so it is part of the learning history.
+   */
+  async streamConcept(
+    o: { ownerId: string; snapshotId: string; conceptId: string },
+    emit: Emit,
+    signal?: AbortSignal,
+  ) {
+    const cap = CAPABILITIES.teach_concept;
+    const entry = (await conceptIndex(this.db, o.snapshotId)).concepts.find((c) => c.id === o.conceptId);
+    if (!entry) throw new KycError('NOT_FOUND', 'This concept was not found in the code.');
+    const examples = entry.examples.slice(0, 4);
+    emit('examples', { concept: { id: entry.id, label: entry.label, files: entry.files }, examples });
+    const cacheKey = createHash('sha256')
+      .update([o.snapshotId, 'concept', entry.id, cap.version].join('|'))
+      .digest('hex');
+    const hit = await store.cachedExplanation(this.db, o.snapshotId, cacheKey, o.ownerId);
+    if (hit) {
+      emit('message', { messageId: hit.id, cached: true, ...hit.body });
+      emit('done', {
+        explanationId: hit.id,
+        refs: (hit.body as { inYourCode?: unknown }).inYourCode ?? [],
+        refsStripped: hit.refs_stripped,
+        cached: true,
+      });
+      return;
+    }
+    const pack = await planExamples(
+      new PgGraphStore(this.db, o.snapshotId),
+      examples.map((e) => e.symbolId),
+      cap.budget,
+    );
+    const env = await this.exec.run(
+      cap,
+      { conceptId: entry.id, conceptLabel: entry.label, previousExplanationSummary: '' },
+      pack,
+      {
+        ownerId: o.ownerId,
+        snapshotId: o.snapshotId,
+        ...(signal ? { signal } : {}),
+        onProgress: this.progress(emit, cap.id),
+      },
+    );
+    const first = examples[0]!;
+    const id = randomUUID();
+    const stored = await store.insertExplanation(this.db, {
+      id,
+      snapshotId: o.snapshotId,
+      ownerId: o.ownerId,
+      parentId: null,
+      cacheKey,
+      selection: { path: first.path, startLine: first.line, startCol: 0, endLine: first.line, endCol: 0 },
+      kind: 'concept',
+      depth: 'default',
+      symbolId: first.symbolId,
+      symbolKey: first.symbolKey,
+      body: env.payload,
+      promptVersion: PROMPT_VERSION,
+      model: env.model,
+      refsStripped: env.refsStripped,
+      capability: env.capability,
+      capabilityVersion: env.version,
+      claims: env.claims,
+    });
+    if (!stored) throw new KycError('SNAPSHOT_EXPIRED');
+    emit('message', { messageId: id, cached: false, ...env.payload });
+    emit('done', {
+      explanationId: id,
+      refs: env.payload.inYourCode,
       refsStripped: env.refsStripped,
       evidence: summary(env),
     });

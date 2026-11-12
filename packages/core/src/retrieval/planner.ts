@@ -384,3 +384,41 @@ async function planFlow(
     pack.text('FLOW', `No verified calls from ${start.name} to code in this repository.`, 60);
   }
 }
+
+/**
+ * A pack of several real examples (P3.3 concept teaching): the opening lines of each example symbol, sharing the
+ * budget evenly, in the order given. Deterministic and bounded like every other plan.
+ */
+export async function planExamples(
+  store: GraphStore,
+  symbolIds: string[],
+  maxTokens: number,
+): Promise<ContextPack> {
+  const pack = new Pack(maxTokens);
+  const lines = fileCache(store);
+  const share = Math.floor(maxTokens / Math.max(1, symbolIds.length));
+  for (const id of symbolIds) {
+    const sym = await store.symbol(id);
+    const fl = sym ? await lines(sym.path) : null;
+    if (!sym || !fl) continue;
+    pack.snippet(
+      'EXAMPLE',
+      sym.path,
+      fl,
+      sym.startLine,
+      Math.min(sym.endLine, sym.startLine + 14),
+      Math.min(share, 500),
+      `${sym.kind} ${sym.name}`,
+    );
+  }
+  return {
+    text: redact(pack.parts.join('\n\n')).text,
+    ranges: pack.ranges,
+    tokens: pack.used,
+    relations: null,
+    edges: new Map(),
+    flow: [],
+    items: pack.items,
+    truncated: pack.truncated,
+  };
+}

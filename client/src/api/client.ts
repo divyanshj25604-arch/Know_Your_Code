@@ -1,4 +1,5 @@
 import {
+  type ConceptIndex,
   ERROR_MESSAGES,
   type AccountView,
   type AuthSessionResponse,
@@ -318,6 +319,20 @@ export function createApiClient(
     deleteBookmark: (id: string) => call<void>('DELETE', `/api/v1/bookmarks/${id}`),
     architecture: (snapshotId: string) =>
       call<ArchitectureView>('GET', `/api/v1/snapshots/${snapshotId}/architecture`),
+    concepts: (snapshotId: string) => call<ConceptIndex>('GET', `/api/v1/snapshots/${snapshotId}/concepts`),
+    teachConcept: (
+      snapshotId: string,
+      conceptId: string,
+      onEvent: (m: SseMessage) => void,
+      signal?: AbortSignal,
+    ) =>
+      streamSse(
+        t,
+        `/api/v1/snapshots/${snapshotId}/concepts/${encodeURIComponent(conceptId)}/teach`,
+        {},
+        onEvent,
+        signal,
+      ),
     tour: (snapshotId: string) => call<TourView>('GET', `/api/v1/snapshots/${snapshotId}/tour`),
     answerCheckText: (checkId: string, text: string) =>
       call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { text }),

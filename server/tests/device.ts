@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { LightMyRequestResponse } from 'fastify';
+import { parseSse, type SseEvent } from './harness';
 
 /**
  * One client device for tests: a browser with its own cookie jar, or a bearer-token client (desktop). Honours every
@@ -105,5 +106,13 @@ export class Device {
     const res = await this.get('/api/v1/my/snapshots');
     if (res.statusCode !== 200) throw new Error(`my/snapshots: ${res.statusCode} ${res.body}`);
     return res.json().snapshots;
+  }
+
+  /** POST to a server-sent-events route and parse the stream (or the JSON error when it was refused). */
+  async sse(url: string, payload: unknown = {}) {
+    const res = await this.post(url, payload);
+    if (!res.headers['content-type']?.toString().startsWith('text/event-stream'))
+      return { status: res.statusCode, events: [] as SseEvent[] };
+    return { status: res.statusCode, events: parseSse(res.body) };
   }
 }

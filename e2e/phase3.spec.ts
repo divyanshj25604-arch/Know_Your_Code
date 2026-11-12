@@ -94,3 +94,20 @@ test.describe('P3.5 assessment', () => {
     await expect(results.getByRole('list', { name: 'Attempts, newest first' })).toContainText('Partly (50%)');
   });
 });
+
+test.describe('P3.3 concepts', () => {
+  test('a concept shows real examples from two files and teaches from them', async ({ page }) => {
+    await openWorkspace(page);
+    await goMode(page, 'Project');
+    const concept = page.getByRole('listitem', { name: 'Concept async await' });
+    const examples = concept.getByRole('list', { name: 'Examples of async await' });
+    await expect(examples).toContainText('src/controllers/authController.js');
+    await expect(examples).toContainText('src/services/userService.js');
+    await concept.getByRole('button', { name: 'Teach me async await' }).click();
+    const lesson = concept.getByLabel('Lesson: async await');
+    await expect(lesson).toBeVisible({ timeout: 15_000 });
+    await examples.getByRole('button', { name: /findUserByEmail/ }).click();
+    await expect(page).toHaveURL(/\/explore/);
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/services/userService.js');
+  });
+});

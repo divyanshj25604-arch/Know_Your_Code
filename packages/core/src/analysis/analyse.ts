@@ -2,6 +2,7 @@ import { Node, SyntaxKind, ts, type Project, type SourceFile } from 'ts-morph';
 import * as posix from '../util/posixPath';
 import { buildProject, readPathAliases, toRelPath, type PathAliases } from './project';
 import { applyStableKeys } from './symbolKey';
+import { detectConcepts } from './concepts';
 import type {
   AnalysisInput,
   AnalysisResult,
@@ -37,6 +38,8 @@ interface Ctx {
   byDecl: Map<ts.Node, SymbolRow>;
   /** Function-like symbols by their AST node, for finding the enclosing symbol of an expression. */
   scopeNodes: Map<ts.Node, SymbolRow>;
+  /** Function-like symbols with their ts-morph node, for concept detection. */
+  functions: { node: Node; sym: SymbolRow }[];
   edges: EdgeRow[];
   diagnostics: Diagnostic[];
   broken: Set<string>;
@@ -212,6 +215,7 @@ function makeFunctionSymbol(
     },
   );
   ctx.scopeNodes.set(fn.compilerNode, sym);
+  ctx.functions.push({ node: fn, sym });
   if (/^[A-Z]/.test(name) && containsJsx(fn) && !sym.tags.includes('react-component'))
     sym.tags.push('react-component');
   addParams(ctx, fn, sym);
@@ -906,6 +910,7 @@ export async function analyse(files: AnalysisInput[], opts: AnalyseOptions = {})
     symbols: [],
     byDecl: new Map(),
     scopeNodes: new Map(),
+    functions: [],
     edges: [],
     diagnostics: [],
     broken: new Set(),
@@ -963,6 +968,21 @@ export async function analyse(files: AnalysisInput[], opts: AnalyseOptions = {})
     } catch (e) {
       ctx.diagnostics.push({ path: relPath(sf), kind: 'analysis_failed', message: (e as Error).message });
       failedFiles.push({ path: relPath(sf), reason: 'analysis_failed' });
+    }
+  }
+  // Concepts each function shows (P3.3), as `concept:<id>` tags.
+  for (const { node, sym } of ctx.functions) {
+    try {
+      for (const c of detectConcepts(node)) {
+        const tag = `concept:${c}`;
+        if (!sym.tags.includes(tag)) sym.tags.push(tag);
+      }
+    } catch (e) {
+      ctx.diagnostics.push({
+        path: sym.path,
+        kind: 'analysis_failed',
+        message: `concepts: ${(e as Error).message}`,
+      });
     }
   }
   // Replace run-local keys with stable keys before any edge refers to a symbol, so edges use them too.

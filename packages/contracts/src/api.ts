@@ -242,3 +242,14 @@ export interface AssessmentResults {
     }[];
   }[];
 }
+
+/** Programming concepts found in a snapshot's code (P3.3), each with real examples, different files first. */
+export interface ConceptIndex {
+  concepts: {
+    id: string;
+    label: string;
+    count: number;
+    files: number;
+    examples: { symbolId: string; symbolKey: string | null; name: string; path: string; line: number }[];
+  }[];
+}

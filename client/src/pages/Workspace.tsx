@@ -18,6 +18,7 @@ import { ValidateMode } from '../components/modes/ValidateMode';
 import { BookmarkButton, Bookmarks } from '../components/learning/Bookmarks';
 import { TourBar } from '../components/learning/TourBar';
 import { ArchitectureMap } from '../components/learning/ArchitectureMap';
+import { Concepts } from '../components/learning/Concepts';
 import type { Selection } from '@kyc/contracts';
 
 export function Workspace() {
@@ -443,6 +444,13 @@ function Loaded({
             snapshotId={snap.id}
             onOpenFile={(p) => {
               exploration.openFile(p);
+              go('explore');
+            }}
+          />
+          <Concepts
+            snapshotId={snap.id}
+            onOpen={(p, l, label) => {
+              exploration.navigate(p, l, label);
               go('explore');
             }}
           />
