@@ -1,5 +1,8 @@
 import {
   type ConceptIndex,
+  type PathItemResult,
+  type PathItemSubmit,
+  type PathsView,
   type FlowDetail,
   type FlowsView,
   ERROR_MESSAGES,
@@ -321,6 +324,13 @@ export function createApiClient(
     deleteBookmark: (id: string) => call<void>('DELETE', `/api/v1/bookmarks/${id}`),
     architecture: (snapshotId: string) =>
       call<ArchitectureView>('GET', `/api/v1/snapshots/${snapshotId}/architecture`),
+    paths: (snapshotId: string) => call<PathsView>('GET', `/api/v1/snapshots/${snapshotId}/paths`),
+    submitPathItem: (snapshotId: string, pathId: string, itemId: string, body: PathItemSubmit) =>
+      call<PathItemResult>(
+        'POST',
+        `/api/v1/snapshots/${snapshotId}/paths/${encodeURIComponent(pathId)}/items/${encodeURIComponent(itemId)}`,
+        body,
+      ),
     flows: (snapshotId: string) => call<FlowsView>('GET', `/api/v1/snapshots/${snapshotId}/flows`),
     flow: (flowId: string) => call<FlowDetail>('GET', `/api/v1/flows/${flowId}`),
     concepts: (snapshotId: string) => call<ConceptIndex>('GET', `/api/v1/snapshots/${snapshotId}/concepts`),

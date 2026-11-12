@@ -156,3 +156,51 @@ test.describe('P3.2 request flows and P3.6 walkthrough', () => {
     await expect(walk).toHaveCount(0);
   });
 });
+
+test.describe('P3.7 learning paths', () => {
+  test('a path with a mission, a lesson and a knowledge check is completed and recorded', async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await goMode(page, 'Project');
+    const card = page.getByRole('listitem', { name: 'Path Follow a request: POST /auth/login' });
+    await expect(card).toContainText('Not started');
+    await card.getByRole('button', { name: 'Start Follow a request: POST /auth/login' }).click();
+    await expect(page).toHaveURL(/\/learn/);
+    const player = page.getByRole('region', { name: 'Learning path' });
+
+    // Mission: find the handler in the code, then mark the place.
+    const mission = player.getByRole('group', { name: 'Mission: Find the handler of POST /auth/login' });
+    await expect(mission).toBeVisible();
+    await openFile(page, 'src/app.js');
+    await page.locator('.cm-line', { hasText: "app.use('/auth', authRoutes);" }).click();
+    await mission.getByRole('button', { name: 'Mark this place' }).click();
+    await expect(player.getByRole('status').first()).toContainText('Not this place.');
+    await openFile(page, 'src/controllers/authController.js');
+    await page.locator('.cm-line', { hasText: 'const user = await findUserByEmail' }).click();
+    await mission.getByRole('button', { name: 'Mark this place' }).click();
+    await expect(player.getByText('Found it.')).toBeVisible();
+
+    // Lesson: real code opens in the viewer.
+    await player.getByRole('button', { name: 'Next item' }).click();
+    const lesson = player.getByRole('group', { name: 'Lesson: What happens on POST /auth/login' });
+    await lesson.getByRole('button', { name: /Open findUserByEmail/ }).click();
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/services/userService.js');
+    await lesson.getByRole('button', { name: 'Mark lesson complete' }).click();
+    await expect(player.getByText('Lesson complete.')).toBeVisible();
+
+    // Knowledge check, graded on the server.
+    await player.getByRole('button', { name: 'Next item' }).click();
+    const check = player.getByRole('group', { name: 'Knowledge check: What the handler calls' });
+    await check.getByRole('button', { name: 'findUserByEmail', exact: true }).click();
+    await expect(player.getByText(/Correct\. login calls findUserByEmail/)).toBeVisible();
+    await expect(player.getByText('Path complete. Your progress is saved.')).toBeVisible();
+
+    // Recorded on the server: still complete after a reload.
+    await page.reload();
+    await goMode(page, 'Project');
+    await expect(
+      page.getByRole('listitem', { name: 'Path Follow a request: POST /auth/login' }),
+    ).toContainText('Completed');
+  });
+});

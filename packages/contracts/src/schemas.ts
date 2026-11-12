@@ -292,3 +292,15 @@ export const BookmarkRequestSchema = z
 export type BookmarkRequest = z.input<typeof BookmarkRequestSchema>;
 
 export const CreateCheckRequestSchema = z.object({ format: CheckFormatSchema.default('choice') }).default({});
+
+/** Complete a lesson, submit a place in the code for a mission, or answer a knowledge check. */
+export const PathItemSubmitSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('lesson') }),
+  z.object({
+    kind: z.literal('mission'),
+    path: z.string().min(1).max(1024),
+    line: z.number().int().min(1).max(1_000_000),
+  }),
+  z.object({ kind: z.literal('check'), answerIndex: z.number().int().min(0).max(9) }),
+]);
+export type PathItemSubmit = z.infer<typeof PathItemSubmitSchema>;

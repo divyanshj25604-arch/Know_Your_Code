@@ -39,6 +39,18 @@ export {
   type RequestFlowStepKind,
 } from './analysis/flows';
 export {
+  buildLearningPaths,
+  itemView,
+  missionMet,
+  type CheckContent,
+  type LearningPathContent,
+  type LessonContent,
+  type MissionContent,
+  type PathFunction,
+  type PathInputs,
+  type PathItemContent,
+} from './learning/paths';
+export {
   detectModules,
   type ArchitectureMap,
   type ModuleDependency,

@@ -986,3 +986,17 @@ details.sec > summary {
 .flow-step.current {
   background: var(--highlight);
 }
+.path-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  list-style: none;
+  padding: 0;
+  margin: var(--s2) 0;
+}
+.path-items [aria-current='step'] {
+  background: var(--highlight);
+}
+.path-item p {
+  margin: var(--s1) 0;
+}

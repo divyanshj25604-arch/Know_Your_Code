@@ -293,3 +293,54 @@ export interface FlowDetail extends FlowSummary {
   snapshotId: string;
   steps: FlowStepView[];
 }
+
+// ---------------------------------------------------------------- learning paths (P3.7)
+
+/** The six MVP learning levels. */
+export type LearningLevel =
+  'project' | 'application' | 'concept' | 'exploration' | 'interactive' | 'validation';
+
+/** A paragraph, or a reference to real code that opens in the viewer. */
+export type LessonBlock =
+  { type: 'text'; text: string } | { type: 'code'; path: string; line: number; label: string };
+
+export type PathItemKind = 'lesson' | 'mission' | 'check';
+export type ProgressStatus = 'not_started' | 'started' | 'completed';
+
+/** One item of a learning path as the learner sees it (answers are never sent). */
+export interface PathItemView {
+  id: string;
+  kind: PathItemKind;
+  title: string;
+  status: ProgressStatus;
+  /** Lesson content. */
+  blocks?: LessonBlock[];
+  /** Mission: what to find in the code, answered by opening the place in the viewer. */
+  goal?: string;
+  hint?: string;
+  /** Knowledge check. */
+  question?: string;
+  options?: string[];
+}
+
+export interface LearningPathView {
+  id: string;
+  level: LearningLevel;
+  title: string;
+  summary: string;
+  status: ProgressStatus;
+  items: PathItemView[];
+}
+
+export interface PathsView {
+  paths: LearningPathView[];
+}
+
+export interface PathItemResult {
+  correct: boolean;
+  feedback: string;
+  itemStatus: ProgressStatus;
+  pathStatus: ProgressStatus;
+  /** Where the answer is in the code (shown after a correct answer or to explain a wrong one). */
+  refs: { path: string; line: number }[];
+}

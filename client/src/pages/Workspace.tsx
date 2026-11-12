@@ -20,6 +20,7 @@ import { TourBar } from '../components/learning/TourBar';
 import { ArchitectureMap } from '../components/learning/ArchitectureMap';
 import { Concepts } from '../components/learning/Concepts';
 import { FlowList } from '../components/flows/FlowList';
+import { PathList, PathPlayer } from '../components/learning/PathPlayer';
 import { FlowWalkthrough } from '../components/flows/FlowWalkthrough';
 import type { Selection } from '@kyc/contracts';
 
@@ -143,8 +144,11 @@ function WorkspaceView({
   onUrl?: (path: string | null, line: number | null) => void;
   /** Mode-specific controls shown in the trail bar. */
   actions?: React.ReactNode;
-  /** Shown above the panes (the guided tour). */
-  banner?: React.ReactNode;
+  /**
+   * Shown above the panes (tour, flow walkthrough, learning path). As a function it receives the place the learner is
+   * at in the code (the viewer cursor, or the current stop).
+   */
+  banner?: React.ReactNode | ((place: () => { path: string; line: number } | null) => React.ReactNode);
   /** Where bookmarks are saved; absent when bookmarking is not possible. */
   bookmarkTarget?: { repositoryId: string; commitSha: string | null };
 }) {
@@ -245,7 +249,13 @@ function WorkspaceView({
         </button>
       </div>
 
-      {banner}
+      {typeof banner === 'function'
+        ? banner(() => {
+            const s = viewer.current?.getSelection();
+            if (s) return { path: s.path, line: s.startLine };
+            return entry?.path && entry.line ? { path: entry.path, line: entry.line } : null;
+          })
+        : banner}
       <div className={`workspace${treeOpen ? ' tree-open' : ''}${sheet ? ' sheet-open' : ''}`}>
         <div className="ws-tree">
           {ws.tree ? (
@@ -415,6 +425,7 @@ function Loaded({
   const learning = useWorkspace(target, 'learning');
   const [touring, setTouring] = useState(false);
   const [flowId, setFlowId] = useState<string | null>(null);
+  const [pathId, setPathId] = useState<string | null>(null);
   const bookmarkTarget = { repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const exploration = useWorkspace(target, 'exploration', initial);
 
@@ -450,6 +461,14 @@ function Loaded({
               go('explore');
             }}
           />
+          <PathList
+            snapshotId={snap.id}
+            onOpen={(id) => {
+              setTouring(false);
+              setPathId(id);
+              go('learn');
+            }}
+          />
           <FlowList
             snapshotId={snap.id}
             onWalk={(id) => {
@@ -479,8 +498,16 @@ function Loaded({
           depth={depth}
           setDepth={setDepth}
           bookmarkTarget={bookmarkTarget}
-          banner={
-            touring ? (
+          banner={(place) =>
+            pathId ? (
+              <PathPlayer
+                snapshotId={snap.id}
+                pathId={pathId}
+                place={place}
+                onGo={(p, l, label) => learning.navigate(p, l, label)}
+                onClose={() => setPathId(null)}
+              />
+            ) : touring ? (
               <TourBar
                 snapshotId={snap.id}
                 currentPath={learning.entry?.path ?? null}
@@ -492,7 +519,7 @@ function Loaded({
           }
           actions={
             <>
-              {!touring && (
+              {!touring && !pathId && (
                 <button type="button" className="btn btn-small" onClick={() => setTouring(true)}>
                   Guided tour
                 </button>
