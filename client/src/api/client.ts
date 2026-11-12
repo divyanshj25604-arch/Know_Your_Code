@@ -4,6 +4,7 @@ import {
   type AuthSessionResponse,
   type ClaimResponse,
   type ArchitectureView,
+  type AssessmentResults,
   type BookmarkRequest,
   type BookmarkView,
   type ErrorCode,
@@ -207,6 +208,8 @@ export interface ThreadMessage {
 export interface CheckQuestion {
   checkId: string;
   type: 'predict' | 'trace' | 'why';
+  /** choice: pick one of `options`; open: answer in your own words (graded against a rubric). */
+  format?: 'choice' | 'open';
   question: string;
   options: string[];
 }
@@ -228,6 +231,8 @@ export interface StoredExplanation {
 export interface CheckResult {
   /** Free-text answers are graded: correct, partly or incorrect. */
   verdict?: 'correct' | 'partly' | 'incorrect';
+  score?: number;
+  points?: { point: string; met: boolean }[];
   correct: boolean;
   feedback: string;
   refs: { path: string; line: number }[];
@@ -316,8 +321,10 @@ export function createApiClient(
     tour: (snapshotId: string) => call<TourView>('GET', `/api/v1/snapshots/${snapshotId}/tour`),
     answerCheckText: (checkId: string, text: string) =>
       call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { text }),
-    createCheck: (explanationId: string) =>
-      call<CheckQuestion>('POST', `/api/v1/explanations/${explanationId}/checks`, {}),
+    createCheck: (explanationId: string, format: 'choice' | 'open' = 'choice') =>
+      call<CheckQuestion>('POST', `/api/v1/explanations/${explanationId}/checks`, { format }),
+    assessment: (repositoryId: string) =>
+      call<AssessmentResults>('GET', `/api/v1/repositories/${repositoryId}/assessment`),
     answerCheck: (checkId: string, answerIndex: number) =>
       call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { answerIndex }),
     explain: (

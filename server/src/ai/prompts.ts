@@ -60,8 +60,12 @@ export function conceptTask(conceptId: string, label: string): string {
   return `TASK: teach the concept "${label}" (id: ${conceptId}) using THIS code as the example.\nGive a plain-language explanation first, then the technical term, then 1-3 places "inYourCode" that show the concept, each with a path and a line that appears in the snippets. Only if the snippets contain no instance, give a short generic example and say so in "backToCode". Optionally add one "spotIt" question the student can answer from the shown code. Keep it under about 180 words.`;
 }
 
-export function checkTask(): string {
-  return `TASK: write ONE optional understanding check about the selected code. It must be answerable from the shown code alone, with no trick questions. Choose type predict, trace or why. Give exactly 4 options with exactly one correct answer (correctIndex 0-3), the lines that justify it in answerRefs, and a short explanation that cites them.`;
+export function checkTask(format: 'choice' | 'open' = 'choice'): string {
+  const shape =
+    format === 'open'
+      ? 'Set format "open": the student answers in their own words. Leave options empty and correctIndex 0. Give a "rubric" of 2-4 short points a good answer must make, each checkable against the shown code.'
+      : 'Set format "choice": give exactly 4 options with exactly one correct answer (correctIndex 0-3). Leave rubric empty.';
+  return `TASK: write ONE optional understanding check about the selected code. It must be answerable from the shown code alone, with no trick questions. Choose type predict, trace or why. ${shape} Give the lines that justify the answer in answerRefs, and a short explanation that cites them.`;
 }
 
 export function flowTask(depth: Depth): string {
@@ -69,7 +73,7 @@ export function flowTask(depth: Depth): string {
 }
 
 export function gradeTask(): string {
-  return `TASK: grade the student's free-text answer to the understanding check in task_input against the expected answer and the shown code. Verdict "correct" if it states the essential point, "partly" if it is on the right track but misses or confuses part of it, "incorrect" otherwise. Write short, encouraging feedback (at most 60 words) that explains the right answer and cites the lines that show it. Never shame the student.`;
+  return `TASK: grade the student's free-text answer to the understanding check in task_input. For EACH point in "rubric" (or, without a rubric, the expected answer as one point), say whether the answer makes it ("met"). Judge meaning, not wording. Write short, encouraging feedback (at most 60 words) that explains what was missed, citing the lines that show the right answer. Never shame the student. The verdict you give is checked against the points.`;
 }
 
 export const OVERVIEW_TASK = `TASK: write a short project overview (at most 200 words) of what this application does and its main modules, using ONLY the facts, file headers and README excerpt provided. Every module must list real paths from the provided file list. Do not claim behaviour you cannot see.`;

@@ -131,9 +131,23 @@ export class FakeLlm implements LlmClient {
         backToCode: 'Back to your selection.',
       };
     }
+    if (call.task === 'check' && ti.format === 'open') {
+      return {
+        type: 'why',
+        format: 'open',
+        question: `In your own words, what does the selected code in ${path} do first?`,
+        options: [],
+        correctIndex: 0,
+        rubric: [`line ${first}`, 'starts'],
+        answerRefs: [{ path, line: first }],
+        explanation: `The selection begins at line ${first}.`,
+      };
+    }
     if (call.task === 'check') {
       return {
         type: 'why',
+        format: 'choice',
+        rubric: [],
         question: `Which line starts the selected code in ${path}?`,
         options: [`Line ${first}`, `Line ${first + 100}`, `Line ${first + 200}`, `Line ${first + 300}`],
         correctIndex: 0,
@@ -170,9 +184,15 @@ export class FakeLlm implements LlmClient {
     if (call.task === 'grade') {
       const answer = String(ti.answer ?? '').toLowerCase();
       const expected = String(ti.expected ?? '').toLowerCase();
-      const hit = expected.length > 0 && answer.includes(expected);
+      const rubric = (ti as unknown as { rubric?: string[] }).rubric ?? [];
+      const points = (rubric.length ? rubric : [expected]).map((p) => ({
+        point: p,
+        met: answer.includes(p.toLowerCase()),
+      }));
+      const hit = points.every((p) => p.met);
       return {
-        verdict: hit ? 'correct' : answer.trim().length > 20 ? 'partly' : 'incorrect',
+        points,
+        verdict: hit ? 'correct' : points.some((p) => p.met) ? 'partly' : 'incorrect',
         feedback: hit ? 'Yes, that is the key point.' : `The key point is: ${ti.expected ?? ''}.`,
         refs: [{ path, line: first }],
       };

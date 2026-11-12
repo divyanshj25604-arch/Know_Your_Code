@@ -72,3 +72,25 @@ test.describe('P3.1 architecture map', () => {
     await expect(page.locator('.viewer-head .mono')).toHaveText('src/controllers/authController.js');
   });
 });
+
+test.describe('P3.5 assessment', () => {
+  test('an open question is graded against its rubric and every attempt appears in the results', async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await goMode(page, 'Learn');
+    await expect(page.getByRole('button', { name: 'Explore freely' })).toBeVisible();
+    await explainLogin(page);
+    await expect(page.getByText('Place saved')).toBeVisible();
+    await goMode(page, 'Validate');
+    const item = page.locator('.validate-item').filter({ hasText: 'login' }).last();
+    await item.getByRole('button', { name: 'Explain it in your own words' }).click();
+    await item.getByLabel('Or answer in your own words').fill('It is about line 3.');
+    await item.getByRole('button', { name: 'Check my answer' }).click();
+    await expect(item.getByText('Partly right.')).toBeVisible();
+    await expect(item.getByRole('list', { name: 'Rubric' })).toContainText('○ starts');
+    const results = page.getByRole('region', { name: 'Your results' });
+    await expect(results).toContainText('1 of 1 checks answered');
+    await expect(results.getByRole('list', { name: 'Attempts, newest first' })).toContainText('Partly (50%)');
+  });
+});

@@ -70,7 +70,9 @@ export const FlowExplanationBodySchema = z.object({
 });
 export type FlowExplanationBody = z.infer<typeof FlowExplanationBodySchema>;
 
+/** Rubric grading: which expected points the answer makes; the verdict and score are derived from them. */
 export const GradeBodySchema = z.object({
+  points: z.array(z.object({ point: z.string(), met: z.boolean() })).default([]),
   verdict: z.enum(['correct', 'partly', 'incorrect']),
   feedback: z.string(),
   refs: z.array(RefSchema).default([]),

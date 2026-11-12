@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   CheckAnswerRequestSchema,
+  CreateCheckRequestSchema,
   ExplainRequestSchema,
   FlowExplainRequestSchema,
   MessageRequestSchema,
@@ -9,6 +10,7 @@ import {
 import { KycError } from '@kyc/core';
 import { parse } from './validate';
 import { openSse } from './sse';
+import { ownsRepository } from '../index/learning';
 import { loadUsableSnapshot } from './routes';
 import { assertUsable } from './snapshotAccess';
 import { getSnapshot } from '../index/snapshots';
@@ -147,7 +149,8 @@ export function registerAiRoutes(app: FastifyInstance, svc: Services) {
     const { id } = parse(IdParam, req.params);
     const { userId: ownerId } = await identity.require(req, reply);
     limiter.check('check', ownerId, 30, 3600_000);
-    return ai.createCheck(ownerId, id);
+    const { format } = parse(CreateCheckRequestSchema, req.body ?? {});
+    return ai.createCheck(ownerId, id, format);
   });
 
   app.post('/api/v1/checks/:id/answer', async (req, reply) => {
@@ -163,5 +166,13 @@ export function registerAiRoutes(app: FastifyInstance, svc: Services) {
       id,
       body.answerIndex !== undefined ? { index: body.answerIndex } : { text: body.text ?? '' },
     );
+  });
+
+  /** Assessment results for one repository: every check and every attempt (P3.5). Owner only. */
+  app.get('/api/v1/repositories/:id/assessment', async (req, reply) => {
+    const { id } = parse(IdParam, req.params);
+    const { userId } = await identity.require(req, reply);
+    if (!(await ownsRepository(db, userId, id))) throw new KycError('NOT_FOUND');
+    return ai.results(userId, id);
   });
 }

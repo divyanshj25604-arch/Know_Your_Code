@@ -508,6 +508,7 @@ function Loaded({
       )}
       {mode === 'validate' && (
         <ValidateMode
+          repositoryId={snap.repositoryId}
           tracks={[learning, exploration]}
           onOpen={(p, l) => {
             exploration.navigate(p, l, `${p.split('/').pop()}:${l}`);

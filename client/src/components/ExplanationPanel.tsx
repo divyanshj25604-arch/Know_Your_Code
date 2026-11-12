@@ -327,7 +327,9 @@ export function ExplanationPanel({ ws, depth, onDepth, onOpenRef }: Props) {
           <CheckSection
             check={ex.check}
             onStart={() => void ws.startCheck()}
+            onStartOpen={() => void ws.startCheck('open')}
             onAnswer={(i) => void ws.answerCheck(i)}
+            onAnswerText={(t) => void ws.answerCheckText(t)}
             onClose={ws.closeCheck}
             onOpen={onOpenRef}
           />

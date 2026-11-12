@@ -61,7 +61,7 @@ export interface Workspace {
   retryExplain: (depth: Depth) => Promise<void>;
   ask: (text: string) => Promise<void>;
   openConcept: (id: string, label: string) => Promise<void>;
-  startCheck: () => Promise<void>;
+  startCheck: (format?: 'choice' | 'open') => Promise<void>;
   answerCheck: (i: number) => Promise<void>;
   answerCheckText: (text: string) => Promise<void>;
   closeCheck: () => void;
@@ -595,28 +595,37 @@ export function useWorkspace(
     [sendMessage, patchExpl],
   );
 
-  const startCheck = useCallback(async () => {
-    const cur = current();
-    const ex = cur?.expl;
-    if (!cur || !ex?.meta) return;
-    patchExpl(cur.id, (e) => ({ ...e, check: { question: null, result: null, loading: true, error: null } }));
-    void api.event('check_started');
-    try {
-      const q = await api.createCheck(ex.meta.explanationId);
-      patchExpl(cur.id, (e) => ({ ...e, check: { question: q, result: null, loading: false, error: null } }));
-    } catch (e) {
-      // Generation failed: hide the feature for this explanation rather than show a broken card (docs/05 §14).
-      patchExpl(cur.id, (x) => ({
-        ...x,
-        check: {
-          question: null,
-          result: null,
-          loading: false,
-          error: e instanceof ApiError ? e.message : 'Could not create a question.',
-        },
+  const startCheck = useCallback(
+    async (format: 'choice' | 'open' = 'choice') => {
+      const cur = current();
+      const ex = cur?.expl;
+      if (!cur || !ex?.meta) return;
+      patchExpl(cur.id, (e) => ({
+        ...e,
+        check: { question: null, result: null, loading: true, error: null },
       }));
-    }
-  }, [patchExpl]);
+      void api.event('check_started');
+      try {
+        const q = await api.createCheck(ex.meta.explanationId, format);
+        patchExpl(cur.id, (e) => ({
+          ...e,
+          check: { question: q, result: null, loading: false, error: null },
+        }));
+      } catch (e) {
+        // Generation failed: hide the feature for this explanation rather than show a broken card (docs/05 §14).
+        patchExpl(cur.id, (x) => ({
+          ...x,
+          check: {
+            question: null,
+            result: null,
+            loading: false,
+            error: e instanceof ApiError ? e.message : 'Could not create a question.',
+          },
+        }));
+      }
+    },
+    [patchExpl],
+  );
 
   const answerCheck = useCallback(
     async (i: number) => {

@@ -25,19 +25,27 @@ export function CheckCard({
       <p id={`${name}-q`}>
         <Inline text={question.question} />
       </p>
-      <fieldset disabled={result !== null} className="check-options">
-        <legend className="sr-only">Answer options</legend>
-        {question.options.map((o, i) => (
-          <label key={i} className="check-opt">
-            <input type="radio" name={name} checked={pick === i} onChange={() => setPick(i)} />
-            <Inline text={o} />
-          </label>
-        ))}
-      </fieldset>
+      {question.options.length > 0 && (
+        <fieldset disabled={result !== null} className="check-options">
+          <legend className="sr-only">Answer options</legend>
+          {question.options.map((o, i) => (
+            <label key={i} className="check-opt">
+              <input type="radio" name={name} checked={pick === i} onChange={() => setPick(i)} />
+              <Inline text={o} />
+            </label>
+          ))}
+        </fieldset>
+      )}
       {result ? (
         <div className="check-result" role="status">
           <p>
-            <strong>{result.correct ? 'That matches the code.' : 'Not quite; worth another look.'}</strong>{' '}
+            <strong>
+              {result.correct
+                ? 'That matches the code.'
+                : result.verdict === 'partly'
+                  ? 'Partly there.'
+                  : 'Not quite; worth another look.'}
+            </strong>{' '}
             <Inline text={result.feedback} />
           </p>
           <p>
@@ -47,6 +55,12 @@ export function CheckCard({
           </p>
           <button type="button" className="btn" onClick={onSkip}>
             Close
+          </button>
+        </div>
+      ) : question.options.length === 0 ? (
+        <div className="row">
+          <button type="button" className="btn" onClick={onSkip}>
+            Skip
           </button>
         </div>
       ) : (

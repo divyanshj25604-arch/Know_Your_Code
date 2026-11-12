@@ -221,3 +221,24 @@ export interface ArchitectureView {
   modules: { key: string; name: string; kind: 'package' | 'directory'; root: string; files: string[] }[];
   dependencies: { from: string; to: string; imports: number }[];
 }
+
+/** Assessment results for one repository (P3.5): every check and every attempt, newest first. */
+export interface AssessmentResults {
+  summary: { checks: number; attempted: number; correct: number; averageScore: number | null };
+  checks: {
+    checkId: string;
+    explanationId: string;
+    question: string;
+    type: string;
+    format: 'choice' | 'open';
+    createdAt: string;
+    attempts: {
+      id: string;
+      answer: { answerIndex?: number; text?: string };
+      verdict: 'correct' | 'partly' | 'incorrect';
+      score: number;
+      feedback: string;
+      createdAt: string;
+    }[];
+  }[];
+}

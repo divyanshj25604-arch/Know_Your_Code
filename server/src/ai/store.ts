@@ -1,4 +1,5 @@
 import type {
+  AssessmentResults,
   CapabilityId,
   CheckBody,
   Claim,
@@ -7,7 +8,7 @@ import type {
   ExplanationBody,
   Selection,
 } from '@kyc/contracts';
-import type { Db } from '../db/pool';
+import { withTx, type Db } from '../db/pool';
 
 /** Persistence of AI answers (explanations, thread messages, checks). All AI SQL lives here. */
 
@@ -146,8 +147,8 @@ export async function cachedConcept(db: Db, snapshotId: string, symbolId: string
 
 export async function insertCheck(db: Db, explanationId: string, body: CheckBody): Promise<string> {
   const r = await db.query<{ id: string }>(
-    `INSERT INTO check_attempts (explanation_id, question) VALUES ($1,$2) RETURNING id`,
-    [explanationId, JSON.stringify(body)],
+    `INSERT INTO check_attempts (explanation_id, question, format) VALUES ($1,$2,$3) RETURNING id`,
+    [explanationId, JSON.stringify(body), body.format],
   );
   return r.rows[0]!.id;
 }
@@ -161,12 +162,97 @@ export async function getCheck(db: Db, checkId: string) {
   return r.rows[0] ?? null;
 }
 
-export async function recordAnswer(db: Db, checkId: string, answer: unknown, result: unknown): Promise<void> {
-  await db.query('UPDATE check_attempts SET answer=$2, result=$3 WHERE id=$1', [
-    checkId,
-    JSON.stringify(answer),
-    JSON.stringify(result),
-  ]);
+/**
+ * Record an answer as a new attempt (history is kept, P3.5) and as the check's latest answer, in one transaction.
+ */
+export async function recordAnswer(
+  db: Db,
+  a: {
+    checkId: string;
+    userId: string;
+    answer: Record<string, unknown>;
+    verdict: 'correct' | 'partly' | 'incorrect';
+    score: number;
+    result: unknown;
+  },
+): Promise<string> {
+  return withTx(db, async (c) => {
+    await c.query('UPDATE check_attempts SET answer=$2, result=$3 WHERE id=$1', [
+      a.checkId,
+      JSON.stringify(a.answer),
+      JSON.stringify(a.result),
+    ]);
+    const r = await c.query<{ id: string }>(
+      `INSERT INTO assessment_attempts (check_attempt_id, user_id, answer, verdict, score, result)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [a.checkId, a.userId, JSON.stringify(a.answer), a.verdict, a.score, JSON.stringify(a.result)],
+    );
+    return r.rows[0]!.id;
+  });
+}
+
+/** Every check the user created in a repository with all its attempts, newest first (P3.5 results). */
+export async function assessmentResults(
+  db: Db,
+  userId: string,
+  repositoryId: string,
+): Promise<AssessmentResults> {
+  const checks = await db.query<{
+    id: string;
+    explanation_id: string;
+    question: CheckBody;
+    format: 'choice' | 'open';
+    created_at: Date;
+  }>(
+    `SELECT c.id, c.explanation_id, c.question, c.format, c.created_at
+     FROM check_attempts c JOIN explanations e ON e.id = c.explanation_id
+     WHERE e.owner_id=$1 AND e.repository_id=$2 ORDER BY c.created_at DESC, c.id`,
+    [userId, repositoryId],
+  );
+  const attempts = await db.query<{
+    id: string;
+    check_attempt_id: string;
+    answer: { answerIndex?: number; text?: string };
+    verdict: 'correct' | 'partly' | 'incorrect';
+    score: string;
+    result: { feedback?: string };
+    created_at: Date;
+  }>(
+    `SELECT a.id, a.check_attempt_id, a.answer, a.verdict, a.score, a.result, a.created_at
+     FROM assessment_attempts a WHERE a.user_id=$1 AND a.check_attempt_id = ANY($2::uuid[])
+     ORDER BY a.created_at DESC, a.id`,
+    [userId, checks.rows.map((c) => c.id)],
+  );
+  const out = checks.rows.map((c) => ({
+    checkId: c.id,
+    explanationId: c.explanation_id,
+    question: c.question.question,
+    type: c.question.type,
+    format: c.format,
+    createdAt: c.created_at.toISOString(),
+    attempts: attempts.rows
+      .filter((a) => a.check_attempt_id === c.id)
+      .map((a) => ({
+        id: a.id,
+        answer: a.answer,
+        verdict: a.verdict,
+        score: Number(a.score),
+        feedback: a.result.feedback ?? '',
+        createdAt: a.created_at.toISOString(),
+      })),
+  }));
+  const attempted = out.filter((c) => c.attempts.length > 0);
+  // A check counts by its latest attempt.
+  const latest = attempted.map((c) => c.attempts[0]!);
+  return {
+    summary: {
+      checks: out.length,
+      attempted: attempted.length,
+      correct: latest.filter((a) => a.verdict === 'correct').length,
+      averageScore: latest.length ? latest.reduce((s, a) => s + a.score, 0) / latest.length : null,
+    },
+    checks: out,
+  };
 }
 
 export async function snapshotFacts(db: Db, snapshotId: string) {

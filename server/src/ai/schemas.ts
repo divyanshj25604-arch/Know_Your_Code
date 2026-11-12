@@ -133,12 +133,14 @@ export const CONCEPT_JSON_SCHEMA = {
 export const CHECK_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'question', 'options', 'correctIndex', 'answerRefs', 'explanation'],
+  required: ['type', 'format', 'question', 'options', 'correctIndex', 'rubric', 'answerRefs', 'explanation'],
   properties: {
     type: { type: 'string', enum: ['predict', 'trace', 'why'] },
+    format: { type: 'string', enum: ['choice', 'open'] },
     question: { type: 'string' },
     options: { type: 'array', items: { type: 'string' } },
     correctIndex: { type: 'integer' },
+    rubric: { type: 'array', items: { type: 'string' } },
     answerRefs: refs,
     explanation: { type: 'string' },
   },
@@ -236,13 +238,24 @@ export function normaliseConcept(raw: unknown): ConceptBody {
   return { ...r.data, ...(spot ? { spotIt: spot } : { spotIt: undefined }) };
 }
 
-export function normaliseCheck(raw: unknown): CheckBody {
-  const r = CheckBodySchema.safeParse(raw);
-  if (!r.success || !r.data.options || r.data.correctIndex === undefined)
-    throw new ModelOutputError('check schema');
-  if (!r.data.question.trim() || r.data.options.some((o) => !o.trim()))
+export function normaliseCheck(raw: unknown, format: 'choice' | 'open' = 'choice'): CheckBody {
+  // Structured output always carries every field; an open question's choice fields are placeholders.
+  const input =
+    format === 'open' && raw && typeof raw === 'object'
+      ? { ...(raw as Record<string, unknown>), options: undefined, correctIndex: undefined }
+      : raw;
+  const r = CheckBodySchema.safeParse(input);
+  if (!r.success || !r.data.question.trim()) throw new ModelOutputError('check schema');
+  if (format === 'open') {
+    const rubric = (r.data.rubric ?? []).map((x) => x.trim()).filter(Boolean);
+    if (rubric.length === 0) throw new ModelOutputError('open check without a rubric');
+    const { options: _o, correctIndex: _c, ...rest } = r.data;
+    return { ...rest, format: 'open', rubric };
+  }
+  if (!r.data.options || r.data.correctIndex === undefined || r.data.options.some((o) => !o.trim()))
     throw new ModelOutputError('check content');
-  return r.data;
+  const { rubric: _r, ...rest } = r.data;
+  return { ...rest, format: 'choice' };
 }
 
 export const OverviewOutputSchema = z.object({
@@ -278,8 +291,17 @@ export const FLOW_JSON_SCHEMA = {
 export const GRADE_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['verdict', 'feedback', 'refs'],
+  required: ['points', 'verdict', 'feedback', 'refs'],
   properties: {
+    points: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['point', 'met'],
+        properties: { point: { type: 'string' }, met: { type: 'boolean' } },
+      },
+    },
     verdict: { type: 'string', enum: ['correct', 'partly', 'incorrect'] },
     feedback: { type: 'string' },
     refs,

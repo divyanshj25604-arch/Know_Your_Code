@@ -10,6 +10,7 @@ import { CheckCard } from '../CheckCard';
 export function CheckSection({
   check,
   onStart,
+  onStartOpen,
   onAnswer,
   onAnswerText,
   onClose,
@@ -17,6 +18,8 @@ export function CheckSection({
 }: {
   check: ExplState['check'];
   onStart: () => void;
+  /** Offer a question answered in the learner's own words (graded against a rubric). */
+  onStartOpen?: () => void;
   onAnswer: (i: number) => void;
   onAnswerText?: (text: string) => void;
   onClose: () => void;
@@ -26,9 +29,16 @@ export function CheckSection({
   return (
     <>
       {!check && (
-        <button type="button" className="btn btn-quiet" onClick={onStart}>
-          Check yourself <span className="muted">(optional, 30 s)</span>
-        </button>
+        <p className="row">
+          <button type="button" className="btn btn-quiet" onClick={onStart}>
+            Check yourself <span className="muted">(optional, 30 s)</span>
+          </button>
+          {onStartOpen && (
+            <button type="button" className="btn btn-quiet" onClick={onStartOpen}>
+              Explain it in your own words
+            </button>
+          )}
+        </p>
       )}
       {check?.loading && (
         <p className="muted" role="status">
@@ -73,6 +83,15 @@ export function CheckSection({
             Check my answer
           </button>
         </form>
+      )}
+      {check?.result?.points && check.result.points.length > 0 && (
+        <ul className="plain-list small" aria-label="Rubric">
+          {check.result.points.map((p) => (
+            <li key={p.point}>
+              {p.met ? '✓' : '○'} {p.point}
+            </li>
+          ))}
+        </ul>
       )}
       {check?.result?.verdict && (
         <p className="muted" role="status">

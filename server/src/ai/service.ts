@@ -483,7 +483,12 @@ export class AiService {
 
   // ------------------------------------------------------------------ assess and grade
 
-  async createCheck(ownerId: string, explanationId: string, signal?: AbortSignal) {
+  async createCheck(
+    ownerId: string,
+    explanationId: string,
+    format: 'choice' | 'open' = 'choice',
+    signal?: AbortSignal,
+  ) {
     const ex = await this.loadExplanation(ownerId, explanationId);
     const resolved = await resolveSelection(this.db, ex.snapshot_id, ex.selection);
     const cap = CAPABILITIES.assess;
@@ -496,27 +501,50 @@ export class AiService {
       maxTokens: cap.budget,
       facts: null,
     });
-    const env = await this.exec.run(cap, { kind: resolved.kind }, pack, {
+    const env = await this.exec.run(cap, { kind: resolved.kind, format }, pack, {
       ownerId,
       snapshotId: ex.snapshot_id,
       ...(signal ? { signal } : {}),
     });
     const body = env.payload;
     const checkId = await store.insertCheck(this.db, explanationId, body);
-    return { checkId, type: body.type, question: body.question, options: body.options ?? [] };
+    return {
+      checkId,
+      type: body.type,
+      format: body.format,
+      question: body.question,
+      options: body.options ?? [],
+    };
   }
 
-  /** Grade an answer: an option index exactly, or free text with the rubric-grading capability. */
+  /**
+   * Grade an answer: an option index exactly, or free text with the rubric-grading capability. Every answer is kept
+   * as an attempt (P3.5).
+   */
   async answerCheck(ownerId: string, checkId: string, answer: { index?: number; text?: string }) {
     const row = await store.getCheck(this.db, checkId);
     if (!row) throw new KycError('NOT_FOUND');
     if (row.owner_id !== ownerId) throw new KycError('NOT_OWNER');
     const q = row.question;
     if (answer.index !== undefined) {
+      if ((q.format ?? 'choice') !== 'choice')
+        throw new KycError('INVALID_REQUEST', 'This question is answered in your own words.');
       const correct = answer.index === q.correctIndex;
-      const result = { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex };
-      await store.recordAnswer(this.db, checkId, { answerIndex: answer.index }, result);
-      return { correct, feedback: q.explanation, refs: q.answerRefs, correctIndex: q.correctIndex ?? null };
+      const result = {
+        correct,
+        feedback: q.explanation,
+        refs: q.answerRefs,
+        correctIndex: q.correctIndex ?? null,
+      };
+      await store.recordAnswer(this.db, {
+        checkId,
+        userId: ownerId,
+        answer: { answerIndex: answer.index },
+        verdict: correct ? 'correct' : 'incorrect',
+        score: correct ? 1 : 0,
+        result,
+      });
+      return result;
     }
     const text = (answer.text ?? '').trim();
     const ex = await this.loadExplanation(ownerId, row.explanation_id);
@@ -537,21 +565,36 @@ export class AiService {
         : q.explanation;
     const env = await this.exec.run(
       cap,
-      { question: q.question, expected, explanation: q.explanation, answer: text },
+      { question: q.question, expected, explanation: q.explanation, rubric: q.rubric ?? [], answer: text },
       pack,
       { ownerId, snapshotId: ex.snapshot_id },
     );
     const g = env.payload;
+    const score = g.points.length ? g.points.filter((p) => p.met).length / g.points.length : 0;
     const result = {
       correct: g.verdict === 'correct',
       verdict: g.verdict,
+      score,
+      points: g.points,
       feedback: g.feedback,
       refs: g.refs,
       correctIndex: q.correctIndex ?? null,
       evidence: summary(env),
     };
-    await store.recordAnswer(this.db, checkId, { text }, result);
+    await store.recordAnswer(this.db, {
+      checkId,
+      userId: ownerId,
+      answer: { text },
+      verdict: g.verdict,
+      score,
+      result,
+    });
     return result;
+  }
+
+  /** Assessment results of a repository for its owner (P3.5). */
+  async results(ownerId: string, repositoryId: string) {
+    return store.assessmentResults(this.db, ownerId, repositoryId);
   }
 
   // ------------------------------------------------------------------ project summary

@@ -128,11 +128,20 @@ export const ConceptBodySchema = z.object({
 });
 export type ConceptBody = z.infer<typeof ConceptBodySchema>;
 
+/**
+ * An understanding check. `choice`: four options, one correct (graded exactly). `open`: answered in the learner's
+ * own words and graded against `rubric`, the points a good answer makes (P3.5).
+ */
+export const CheckFormatSchema = z.enum(['choice', 'open']);
+export type CheckFormat = z.infer<typeof CheckFormatSchema>;
+
 export const CheckBodySchema = z.object({
   type: z.enum(['predict', 'trace', 'why']),
+  format: CheckFormatSchema.default('choice'),
   question: z.string(),
   options: z.array(z.string()).length(4).optional(),
   correctIndex: z.number().int().min(0).max(3).optional(),
+  rubric: z.array(z.string()).max(4).optional(),
   answerRefs: z.array(RefSchema).default([]),
   explanation: z.string(),
 });
@@ -281,3 +290,5 @@ export const BookmarkRequestSchema = z
     message: 'endLine precedes startLine',
   });
 export type BookmarkRequest = z.input<typeof BookmarkRequestSchema>;
+
+export const CreateCheckRequestSchema = z.object({ format: CheckFormatSchema.default('choice') }).default({});
