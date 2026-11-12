@@ -148,7 +148,30 @@ export interface HealthView {
   ai: 'configured' | 'not_configured' | 'test_provider';
   github: 'token' | 'anonymous';
   queueDepth: number;
+  /** `standby`: another instance runs background jobs; this one only serves requests (P4.2 single-instance guard). */
+  jobs: 'active' | 'standby';
   version: string;
+  /**
+   * Facts for the privacy notice (P4.5), taken from this server's configuration rather than written into the client:
+   * the AI provider that receives code snippets (null when none does: test provider or AI not configured) and how
+   * long imported code is kept.
+   */
+  privacy: { aiProvider: string | null; retentionDays: number };
+}
+
+/** A user's AI usage today (P4.3): model calls and cost against their daily allowance. Cached answers are free. */
+export interface AiUsageView {
+  spentUsd: number;
+  budgetUsd: number;
+  requests: number;
+  requestLimit: number;
+  byCapability: {
+    capability: string;
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    usd: number;
+  }[];
 }
 
 export interface AccountView {

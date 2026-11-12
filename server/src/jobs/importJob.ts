@@ -1,3 +1,4 @@
+import type { Monitor } from '../ops/monitor';
 import { createHash } from 'node:crypto';
 import { Transform } from 'node:stream';
 import type { FastifyBaseLogger } from 'fastify';
@@ -36,6 +37,8 @@ export interface ImportDeps {
   log: FastifyBaseLogger;
   /** Optional hook after the deterministic index is ready (AI project summary). Failures are non-fatal. */
   summarise?: (snapshotId: string) => Promise<Overview['summary']>;
+  /** Error tracking and failure alerting (P4.2). */
+  monitor?: Monitor;
 }
 
 export function extractLimits(c: Config): ExtractLimits {
@@ -288,9 +291,10 @@ async function recordFailure(ctx: RunContext, e: unknown) {
   const message = app?.message ?? ERROR_MESSAGES.INDEX_FAILED.message;
   const err = e instanceof Error ? e : new Error(String(e));
   const internal = `${app ? code : err.name}: ${err.message}`;
-  if (!app)
+  if (!app) {
     deps.log.error({ err: { message: err.message, stack: err.stack }, snapshotId: snap.id }, 'import failed');
-  else deps.log.warn({ code, snapshotId: snap.id }, 'import rejected');
+    deps.monitor?.reportJobFailure(err, { snapshotId: snap.id });
+  } else deps.log.warn({ code, snapshotId: snap.id }, 'import rejected');
   try {
     await withTx(deps.db, async (c) => {
       await failRun(c, ctx.runId, code);

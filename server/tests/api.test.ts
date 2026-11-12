@@ -39,7 +39,7 @@ afterAll(async () => {
   await db.end();
 });
 beforeEach(async () => {
-  await db.query('TRUNCATE users, deletion_log, events, llm_calls CASCADE');
+  await db.query('TRUNCATE users, deletion_log, events, llm_calls, ai_reservations CASCADE');
   cookie = '';
   gh.add(
     'acme',

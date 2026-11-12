@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate": "tsx src/db/migrate-cli.ts"
+    "db:migrate": "tsx src/db/migrate-cli.ts",
+    "eval": "tsx eval/cli.ts",
+    "eval:live": "tsx eval/cli.ts --provider anthropic",
+    "ai:usage": "tsx src/ai/usage-cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.1.0",

@@ -4,7 +4,8 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { ERROR_CODES, type HealthView } from '@kyc/contracts';
+import { ERROR_CODES, ERROR_MESSAGES, type HealthView } from '@kyc/contracts';
+import { describeDbError, isDbConnectionError } from './ops/database';
 import type { Config } from './config/env';
 import type { Db } from './db/pool';
 import { KycError } from '@kyc/core';
@@ -16,12 +17,17 @@ import { registerAuthRoutes } from './http/authRoutes';
 import { registerLearningRoutes } from './http/learningRoutes';
 import { registerSecurity } from './http/security';
 
+/** Display names of the AI providers, for the privacy notice. */
+const PROVIDER_NAMES = { anthropic: 'Anthropic', groq: 'Groq' } as const;
+
 export interface AppDeps {
   config: Config;
   db: Db;
   overrides?: {
     github?: import('./ingestion/github').GitHubClient;
     llm?: import('./ai/llm').LlmClient | null;
+    /** Evaluation harness only (server/eval): observe every AI evidence envelope. */
+    aiObserver?: import('./ai/executor').RunObserver;
     /** Where logs go (tests capture them to prove secrets are never logged). Default: stdout. */
     logStream?: NodeJS.WritableStream;
   };
@@ -58,6 +64,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   registerSecurity(app, config);
+  // 5xx visibility and alerting (P4.2).
+  app.addHook('onResponse', async (_req, reply) => {
+    services.monitor.recordResponse(reply.statusCode);
+  });
   await app.register(cookie, { secret: config.cookieSecret });
   if (!config.RATE_LIMIT_DISABLED) {
     await app.register(rateLimit, { global: true, max: 600, timeWindow: '1 minute' });
@@ -82,11 +92,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         error: { code: 'INVALID_REQUEST', message: 'That request was not valid.', retryable: false },
       });
     }
-    // Log the real cause server-side; show users a generic message with no internals.
-    req.log.error(
-      { err: { message: (err as Error).message, stack: (err as Error).stack } },
-      'unhandled error',
-    );
+    if (isDbConnectionError(err)) {
+      req.log.error({ event: 'database_unavailable', reason: describeDbError(err) }, 'database unavailable');
+      return reply.status(503).send({
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: ERROR_MESSAGES.SERVICE_UNAVAILABLE.message,
+          retryable: true,
+        },
+      });
+    }
+    // Record the real cause server-side (scrubbed, fingerprinted); show users a generic message with no internals.
+    services.monitor.reportServerError(err, {
+      method: req.method,
+      route: req.routeOptions?.url ?? 'unknown',
+      requestId: String(req.id),
+    });
     return reply.status(500).send({
       error: { code: 'SERVICE_UNAVAILABLE', message: 'Something went wrong on our side.', retryable: true },
     });
@@ -114,7 +135,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       ai,
       github: config.GITHUB_TOKEN ? 'token' : 'anonymous',
       queueDepth: services.runner.depth,
+      jobs: services.runner.paused ? 'standby' : 'active',
       version: config.APP_VERSION,
+      privacy: {
+        aiProvider:
+          services.ai.configured && config.LLM_PROVIDER !== 'fake'
+            ? PROVIDER_NAMES[config.LLM_PROVIDER]
+            : null,
+        retentionDays: config.RETENTION_DAYS,
+      },
     };
   });
 

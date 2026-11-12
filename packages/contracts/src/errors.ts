@@ -15,6 +15,7 @@ export const ERROR_CODES = {
   RATE_LIMITED: { http: 429, retryable: true },
   GITHUB_RATE_LIMITED: { http: 429, retryable: true },
   BUDGET_EXCEEDED: { http: 402, retryable: true },
+  USER_BUDGET_EXCEEDED: { http: 429, retryable: false },
   INDEX_FAILED: { http: 500, retryable: true },
   AI_TIMEOUT: { http: 504, retryable: true },
   AI_ERROR: { http: 502, retryable: true },
@@ -54,7 +55,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, { message: string; action?: strin
     message: 'An account with this email already exists.',
     action: 'Sign in instead',
   },
-  SNAPSHOT_EXPIRED: { message: "This repo's data was deleted after 7 days.", action: 'Import it again' },
+  SNAPSHOT_EXPIRED: {
+    message: "This repo's data has been deleted (imported code is kept for a limited time).",
+    action: 'Import it again',
+  },
   REPO_TOO_LARGE: { message: 'This repository is over the size limit.', action: 'Try another repository' },
   UNSUPPORTED_LANGUAGE: {
     message: 'No JavaScript/TypeScript files found.',
@@ -66,7 +70,11 @@ export const ERROR_MESSAGES: Record<ErrorCode, { message: string; action?: strin
     action: 'Retry',
   },
   BUDGET_EXCEEDED: {
-    message: "We've hit today's free limit. Navigation still works.",
+    message: "AI explanations have reached today's limit on this server. Navigation still works.",
+    action: 'Come back tomorrow',
+  },
+  USER_BUDGET_EXCEEDED: {
+    message: "You've used today's AI allowance. Browsing and verified connections still work.",
     action: 'Come back tomorrow',
   },
   INDEX_FAILED: { message: 'Analysis failed.', action: 'Retry' },

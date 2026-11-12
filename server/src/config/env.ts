@@ -55,12 +55,17 @@ const EnvSchema = z.object({
   GROQ_API_BASE: z.string().url().default('https://api.groq.com/openai/v1'),
   MODEL_FAST: z.string().default('claude-haiku-5-5'),
   MODEL_STRONG: z.string().default('claude-sonnet-5-5'),
-  // Prices are configuration, not facts baked into code. Verify against the provider's pricing page.
-  MODEL_FAST_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(0.1),
-  MODEL_FAST_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(0.5),
-  MODEL_STRONG_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(2),
-  MODEL_STRONG_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(10),
+  // Prices are configuration, not facts baked into code: the defaults are placeholders for development and tests.
+  // Production with a real provider requires all four to be set from the provider's current price list.
+  MODEL_FAST_INPUT_USD_PER_MTOK: emptyToUndefined(z.coerce.number().nonnegative().default(0.1)),
+  MODEL_FAST_OUTPUT_USD_PER_MTOK: emptyToUndefined(z.coerce.number().nonnegative().default(0.5)),
+  MODEL_STRONG_INPUT_USD_PER_MTOK: emptyToUndefined(z.coerce.number().nonnegative().default(2)),
+  MODEL_STRONG_OUTPUT_USD_PER_MTOK: emptyToUndefined(z.coerce.number().nonnegative().default(10)),
+  // Global cap on AI spend per day (all users together), and each user's share of it (P4.3). Every model call
+  // reserves its worst-case cost first, so concurrent requests cannot exceed either cap.
   DAILY_SPEND_CAP_USD: z.coerce.number().nonnegative().default(5),
+  AI_USER_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.5),
+  AI_USER_DAILY_REQUESTS: z.coerce.number().int().positive().default(300),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
   // GitHub
@@ -120,6 +125,24 @@ const EnvSchema = z.object({
 
   CORS_ALLOWED_ORIGINS: CorsOrigins,
 
+  // Operations (P4.2). DEPLOY_ENVIRONMENT names this deployment in logs and alerts (e.g. staging, production).
+  DEPLOY_ENVIRONMENT: z
+    .string()
+    .regex(/^[a-z0-9-]{1,32}$/)
+    .default('local'),
+  // Alert when this many 5xx responses, or failed imports, happen within ALERT_WINDOW_MINUTES. Alerts are logged at
+  // error level; with ALERT_WEBHOOK_URL (https, e.g. a Slack incoming webhook) they are also POSTed there.
+  ALERT_WEBHOOK_URL: emptyToUndefined(
+    z
+      .string()
+      .url()
+      .refine((u) => u.startsWith('https://'), 'must use https')
+      .optional(),
+  ),
+  ALERT_WINDOW_MINUTES: z.coerce.number().int().min(1).max(60).default(5),
+  ALERT_5XX_THRESHOLD: z.coerce.number().int().min(1).default(10),
+  ALERT_JOB_FAILURE_THRESHOLD: z.coerce.number().int().min(1).default(3),
+
   STATIC_DIR: emptyToUndefined(z.string().optional()),
   APP_VERSION: z.string().default('1.0.0'),
 });
@@ -130,6 +153,13 @@ export type Config = z.infer<typeof EnvSchema> & { cookieSecret: string };
 export const CONFIG_KEYS: readonly string[] = Object.keys(EnvSchema.shape);
 
 export class ConfigError extends Error {}
+
+const PRICE_KEYS = [
+  'MODEL_FAST_INPUT_USD_PER_MTOK',
+  'MODEL_FAST_OUTPUT_USD_PER_MTOK',
+  'MODEL_STRONG_INPUT_USD_PER_MTOK',
+  'MODEL_STRONG_OUTPUT_USD_PER_MTOK',
+] as const;
 
 /** Used only outside production. A production config that sets this value is rejected. */
 export const DEV_COOKIE_SECRET = 'dev-only-insecure-cookie-secret-change-me';
@@ -157,6 +187,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: LoadConfi
     throw new ConfigError(`Invalid configuration:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
   }
   const c = parsed.data;
+  if (c.LLM_PROVIDER === 'groq') {
+    // No built-in Groq model defaults (P4.5): Groq retires models (the former defaults llama-3.1-8b-instant and
+    // llama-3.3-70b-versatile were shut down on 2026-08-16), so the operator names current ones explicitly.
+    for (const k of ['MODEL_FAST', 'MODEL_STRONG'] as const)
+      if (!env[k] || c[k].startsWith('claude-'))
+        problems.push(
+          `${k} must name a current Groq model when LLM_PROVIDER=groq (see console.groq.com/docs/models)`,
+        );
+  }
   if (c.NODE_ENV === 'production') {
     if (!c.COOKIE_SECRET) problems.push('COOKIE_SECRET is required in production (>= 16 chars)');
     else if (c.COOKIE_SECRET === DEV_COOKIE_SECRET)
@@ -167,10 +206,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: LoadConfi
     if (c.LLM_PROVIDER === 'groq' && !c.GROQ_API_KEY) {
       problems.push('GROQ_API_KEY is required in production when LLM_PROVIDER=groq');
     }
+    if (c.DAILY_SPEND_CAP_USD > 0 && c.AI_USER_DAILY_BUDGET_USD >= c.DAILY_SPEND_CAP_USD) {
+      problems.push(
+        'AI_USER_DAILY_BUDGET_USD must be below DAILY_SPEND_CAP_USD in production, so one user cannot exhaust the global AI budget',
+      );
+    }
     if (c.ANALYSIS_MODE === 'inline') {
       problems.push(
         'ANALYSIS_MODE=inline is not allowed in production: analysis must run in a memory-capped worker thread',
       );
+    }
+    // The spend caps are only as good as the prices behind them (P4.3/P4.5): a real provider needs prices taken
+    // from the provider's current price list, not the placeholder defaults.
+    if (c.LLM_PROVIDER !== 'fake') {
+      const missing = PRICE_KEYS.filter((k) => !env[k]?.trim());
+      if (missing.length)
+        problems.push(
+          `${missing.join(', ')} must be set explicitly in production from the provider's current price list (USD per million tokens)`,
+        );
     }
   }
   if (problems.length)

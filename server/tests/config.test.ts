@@ -120,3 +120,59 @@ describe('loadConfig', () => {
     expect(CONFIG_KEYS.filter((k) => !documented.has(k))).toEqual([]);
   });
 });
+
+describe('provider configuration (P4.5)', () => {
+  const prod = (over: Record<string, string>) =>
+    ({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgres://x/y',
+      COOKIE_SECRET: 'a-production-cookie-secret',
+      ...over,
+    }) as NodeJS.ProcessEnv;
+  const prices = {
+    MODEL_FAST_INPUT_USD_PER_MTOK: '1',
+    MODEL_FAST_OUTPUT_USD_PER_MTOK: '2',
+    MODEL_STRONG_INPUT_USD_PER_MTOK: '3',
+    MODEL_STRONG_OUTPUT_USD_PER_MTOK: '4',
+  };
+
+  it('has no built-in Groq models: both tiers must be named explicitly', () => {
+    const base = {
+      DATABASE_URL: 'postgres://x/y',
+      LLM_PROVIDER: 'groq',
+      GROQ_API_KEY: 'k',
+    } as NodeJS.ProcessEnv;
+    expect(() => loadConfig(base)).toThrow(/MODEL_FAST must name a current Groq model[\s\S]*MODEL_STRONG/);
+    expect(() => loadConfig({ ...base, MODEL_FAST: 'claude-haiku-5-5', MODEL_STRONG: 'x' })).toThrow(
+      /MODEL_FAST/,
+    );
+    const c = loadConfig({ ...base, MODEL_FAST: 'vendor/small', MODEL_STRONG: 'vendor/large' });
+    expect([c.MODEL_FAST, c.MODEL_STRONG]).toEqual(['vendor/small', 'vendor/large']);
+  });
+
+  it('a real provider in production needs explicit prices; the placeholders are for development only', () => {
+    expect(() => loadConfig(prod({ LLM_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'k' }))).toThrow(
+      /MODEL_FAST_INPUT_USD_PER_MTOK, MODEL_FAST_OUTPUT_USD_PER_MTOK, MODEL_STRONG_INPUT_USD_PER_MTOK, MODEL_STRONG_OUTPUT_USD_PER_MTOK must be set explicitly/,
+    );
+    expect(() =>
+      loadConfig(
+        prod({
+          LLM_PROVIDER: 'anthropic',
+          ANTHROPIC_API_KEY: 'k',
+          ...prices,
+          MODEL_FAST_INPUT_USD_PER_MTOK: ' ',
+        }),
+      ),
+    ).toThrow(/MODEL_FAST_INPUT_USD_PER_MTOK must be set/);
+    expect(
+      loadConfig(prod({ LLM_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'k', ...prices }))
+        .MODEL_STRONG_OUTPUT_USD_PER_MTOK,
+    ).toBe(4);
+    expect(() => loadConfig(prod({ LLM_PROVIDER: 'fake' }))).not.toThrow();
+    // An empty value (as in .env.example) falls back to the development placeholder, never to 0.
+    expect(
+      loadConfig({ DATABASE_URL: 'postgres://x/y', MODEL_FAST_INPUT_USD_PER_MTOK: '' } as NodeJS.ProcessEnv)
+        .MODEL_FAST_INPUT_USD_PER_MTOK,
+    ).toBe(0.1);
+  });
+});

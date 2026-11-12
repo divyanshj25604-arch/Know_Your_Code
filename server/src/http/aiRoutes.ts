@@ -15,12 +15,21 @@ import { loadUsableSnapshot } from './routes';
 import { assertUsable } from './snapshotAccess';
 import { getSnapshot } from '../index/snapshots';
 import type { Services } from '../services';
+import type { AiUsageView } from '@kyc/contracts';
+import { userUsageToday } from '../ai/cost';
 
 const IdParam = z.object({ id: z.string().uuid() });
 const ConceptParam = IdParam.extend({ conceptId: z.string().regex(/^[a-zA-Z-]{1,40}$/) });
 
 export function registerAiRoutes(app: FastifyInstance, svc: Services) {
   const { db, config, limiter, ai, identity } = svc;
+
+  /** The caller's AI usage today against their allowance, per capability (P4.3). Never another user's. */
+  app.get('/api/v1/ai/usage', async (req, reply): Promise<AiUsageView> => {
+    const who = await identity.peek(req, reply);
+    if (!who) throw new KycError('AUTH_REQUIRED');
+    return userUsageToday(db, config, who.userId);
+  });
 
   app.post('/api/v1/explanations', async (req, reply) => {
     const body = parse(ExplainRequestSchema, req.body);

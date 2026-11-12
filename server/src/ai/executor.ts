@@ -4,13 +4,19 @@ import { KycError, verifyClaims, type ContextPack, type VerifyStats } from '@kyc
 import type { Config } from '../config/env';
 import type { Db } from '../db/pool';
 import type { Capability } from './capability';
-import { assertBudget, costUsd, logLlmCall, modelFor, type Tier } from './cost';
+import { costUsd, logLlmCall, modelFor, releaseBudget, reserveBudget, worstCaseUsd, type Tier } from './cost';
 import { thinkingFor, type LlmCall, type LlmClient, type LlmOutput } from './llm';
 import { PROMPT_VERSION, SYSTEM_RULES, userMessage } from './prompts';
 import { ModelOutputError } from './schemas';
 
 /** The envelope plus the number of references checked (used by the strong-tier regeneration rule). */
 export type RunResult<P> = EvidenceEnvelope<P> & { refsTotal: number };
+
+/** Sees every finished envelope (the evaluation harness, server/eval). Never set in production. */
+export type RunObserver = (
+  result: RunResult<unknown>,
+  ctx: { ownerId: string | null; snapshotId: string | null },
+) => void;
 
 export interface RunContext {
   ownerId: string | null;
@@ -33,6 +39,7 @@ export class Executor {
     private readonly db: Db,
     readonly llm: LlmClient | null,
     private readonly log: FastifyBaseLogger,
+    private readonly observer?: RunObserver,
   ) {}
 
   /**
@@ -64,7 +71,6 @@ export class Executor {
   ): Promise<RunResult<P>> {
     const llm = this.llm;
     if (!llm) throw new KycError('AI_NOT_CONFIGURED');
-    await assertBudget(this.db, this.config);
     let tier: Tier = ctx.tier ?? cap.tier;
     let model = modelFor(this.config, tier);
     const p = cap.prompt(input);
@@ -89,6 +95,12 @@ export class Executor {
         timeoutMs: this.config.AI_TIMEOUT_MS,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       };
+      // Budget (P4.3): reserve this call's worst-case cost first; release it once the actual cost is logged.
+      const reservation = await reserveBudget(this.db, this.config, {
+        userId: ctx.ownerId,
+        capability: cap.id,
+        usd: worstCaseUsd(this.config, tier, call.system.length + call.user.length, maxTokens),
+      });
       let out: LlmOutput;
       try {
         out = await this.call(llm, call, ctx);
@@ -97,12 +109,14 @@ export class Executor {
           this.db,
           this.ledger(ctx, cap, model, null, e instanceof KycError ? e.code : 'error'),
         );
+        await releaseBudget(this.db, reservation);
         throw e;
       }
       const cost = costUsd(this.config, tier, out.inputTokens, out.outputTokens);
       lastText = out.text;
       if (out.refused) {
         await logLlmCall(this.db, this.ledger(ctx, cap, model, { out, cost }, 'refusal'));
+        await releaseBudget(this.db, reservation);
         // One retry on the other model, when there is one: a refusal can be model-specific.
         const strong = modelFor(this.config, 'strong');
         if (!refusedOnce && tier === 'fast' && strong !== model) {
@@ -138,6 +152,7 @@ export class Executor {
           value !== null ? 'ok' : `invalid:${problem}`.slice(0, 60),
         ),
       );
+      await releaseBudget(this.db, reservation);
       if (value === null) {
         user = `${base}\n\nYour previous reply did not match the required JSON schema (${problem}). Reply with the JSON object only.`;
         if (out.stopReason === 'max_tokens') maxTokens *= 2;
@@ -159,7 +174,7 @@ export class Executor {
     });
     if (stats.stripped && ledgerId !== null)
       await this.db.query('UPDATE llm_calls SET refs_stripped=$1 WHERE id=$2', [stats.stripped, ledgerId]);
-    return {
+    const result: RunResult<P> = {
       capability: cap.id,
       version: cap.version,
       model,
@@ -170,11 +185,13 @@ export class Executor {
       degraded,
       refsTotal: stats.total,
     };
+    this.observer?.(result, { ownerId: ctx.ownerId, snapshotId: ctx.snapshotId });
+    return result;
   }
 
   private ledger(
     ctx: RunContext,
-    cap: { task: string; version: string },
+    cap: { id: string; task: string; version: string },
     model: string,
     o: { out: LlmOutput; cost: number } | null,
     status: string,
@@ -183,12 +200,14 @@ export class Executor {
       ownerId: ctx.ownerId,
       snapshotId: ctx.snapshotId,
       task: cap.task,
+      capability: cap.id,
       model,
       promptVersion: `${PROMPT_VERSION}/${cap.version}`,
       inputTokens: o?.out.inputTokens ?? null,
       outputTokens: o?.out.outputTokens ?? null,
       costUsd: o?.cost ?? null,
       firstTokenMs: o?.out.firstTokenMs ?? null,
+      stopReason: o?.out.stopReason ?? null,
       totalMs: o?.out.totalMs ?? null,
       status,
       cacheHit: false,

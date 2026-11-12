@@ -12,6 +12,11 @@ export class JobRunner {
   /** Snapshots being processed right now; a snapshot is never run twice at the same time. */
   private active = new Set<string>();
   private stopped = false;
+  /**
+   * In standby, imports are accepted and kept queued but not run: another instance holds the single-instance lock
+   * (P4.2, ops/instanceLock.ts). `resume()` starts processing once this instance holds it.
+   */
+  private standby = false;
   private idleResolvers: (() => void)[] = [];
 
   constructor(
@@ -29,6 +34,20 @@ export class JobRunner {
     if (this.stopped || this.queue.includes(snapshotId) || this.active.has(snapshotId)) return;
     this.queue.push(snapshotId);
     this.pump();
+  }
+
+  /** Stop starting new work (in-flight imports finish). */
+  pause() {
+    this.standby = true;
+  }
+
+  resume() {
+    this.standby = false;
+    this.pump();
+  }
+
+  get paused(): boolean {
+    return this.standby;
   }
 
   async recover(): Promise<number> {
@@ -50,7 +69,7 @@ export class JobRunner {
   }
 
   private pump() {
-    while (this.active.size < this.concurrency && this.queue.length > 0) {
+    while (!this.standby && this.active.size < this.concurrency && this.queue.length > 0) {
       const id = this.queue.shift()!;
       this.active.add(id);
       void this.db

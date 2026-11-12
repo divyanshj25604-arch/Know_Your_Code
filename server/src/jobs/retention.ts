@@ -21,6 +21,8 @@ export async function runRetention(db: Db, log: FastifyBaseLogger): Promise<{ sn
          SELECT 1 FROM snapshots s JOIN repositories r ON r.id = s.repository_id WHERE r.owner_id = u.id)`,
   );
   await deleteEndedSessions(db);
+  // Budget reservations left behind by a crashed request (they already stopped counting when they expired).
+  await db.query('DELETE FROM ai_reservations WHERE expires_at < now()');
   if (snapshots) log.info({ snapshots }, 'retention: deleted expired snapshots');
   return { snapshots };
 }

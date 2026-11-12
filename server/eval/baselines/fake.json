@@ -1,0 +1,507 @@
+{
+  "kind": "kyc-ai-eval",
+  "version": 1,
+  "startedAt": "2026-11-12T10:57:28.624Z",
+  "provider": "fake",
+  "models": {
+    "fast": "claude-haiku-5-5",
+    "strong": "claude-sonnet-5-5"
+  },
+  "realModel": false,
+  "cases": [
+    {
+      "id": "explain-login",
+      "capability": "explain_selection",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 4,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 1,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 1067,
+        "outputTokens": 257,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "explain-find-user",
+      "capability": "explain_selection",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 4,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 1,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 1071,
+        "outputTokens": 222,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "explain-cart-total",
+      "capability": "explain_selection",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 5,
+        "refsStripped": 0,
+        "claims": 4,
+        "claimsDowngraded": 0,
+        "expectedCites": 1,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 1518,
+        "outputTokens": 328,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "flow-login",
+      "capability": "explain_flow",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 5,
+        "refsStripped": 0,
+        "claims": 3,
+        "claimsDowngraded": 0,
+        "expectedCites": 1,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 1260,
+        "outputTokens": 144,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "concept-async-await",
+      "capability": "teach_concept",
+      "pass": false,
+      "failures": ["invalid_citation", "missing_citation"],
+      "details": [
+        "1/1 references pointed outside the evidence shown",
+        "missing citation: src/controllers/authController.js:3-7"
+      ],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 1,
+        "refsStripped": 1,
+        "claims": 0,
+        "claimsDowngraded": 0,
+        "expectedCites": 1,
+        "missingCites": 1,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 800,
+        "outputTokens": 89,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "followup-login-401",
+      "capability": "follow_up",
+      "pass": false,
+      "failures": ["missing_citation", "missing_content"],
+      "details": [
+        "missing citation: src/controllers/authController.js:5-5",
+        "missing content: does not mention \"401\""
+      ],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 1,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 1,
+        "missingCites": 1,
+        "forbiddenMentions": 0,
+        "missingMentions": 1,
+        "inputTokens": 941,
+        "outputTokens": 54,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "assess-login-choice",
+      "capability": "assess",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 1,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 0,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 791,
+        "outputTokens": 92,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "assess-find-user-open",
+      "capability": "assess",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 1,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 0,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 820,
+        "outputTokens": 86,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "grade-login-answer",
+      "capability": "grade",
+      "pass": true,
+      "failures": [],
+      "details": [],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 1,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 0,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 0,
+        "inputTokens": 891,
+        "outputTokens": 64,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "summary-notes-api",
+      "capability": "summarise_project",
+      "pass": false,
+      "failures": ["missing_content"],
+      "details": ["missing content: does not mention \"express\""],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 0,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 0,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 1,
+        "inputTokens": 971,
+        "outputTokens": 26,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    },
+    {
+      "id": "summary-shop",
+      "capability": "summarise_project",
+      "pass": false,
+      "failures": ["missing_content"],
+      "details": ["missing content: does not mention \"react\""],
+      "metrics": {
+        "calls": 1,
+        "schemaInvalidCalls": 0,
+        "truncatedCalls": 0,
+        "refusals": 0,
+        "refsTotal": 0,
+        "refsStripped": 0,
+        "claims": 1,
+        "claimsDowngraded": 0,
+        "expectedCites": 0,
+        "missingCites": 0,
+        "forbiddenMentions": 0,
+        "missingMentions": 1,
+        "inputTokens": 876,
+        "outputTokens": 26,
+        "latencyMs": 0,
+        "firstTokenMs": null
+      }
+    }
+  ],
+  "overall": {
+    "cases": 11,
+    "passed": 7,
+    "passRate": 0.6363636363636364,
+    "schemaFailureRate": 0,
+    "missingCitationRate": 0.3333333333333333,
+    "unsupportedClaimRate": 0,
+    "incompleteOutputRate": 0,
+    "invalidCitationRate": 0.043478260869565216,
+    "calls": 11,
+    "inputTokens": 11006,
+    "outputTokens": 1388,
+    "p50LatencyMs": 0,
+    "maxLatencyMs": 0
+  },
+  "byCapability": {
+    "assess": {
+      "cases": 2,
+      "passed": 2,
+      "passRate": 1,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 0,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 0,
+      "calls": 2,
+      "inputTokens": 1611,
+      "outputTokens": 178,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    },
+    "explain_flow": {
+      "cases": 1,
+      "passed": 1,
+      "passRate": 1,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 0,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 0,
+      "calls": 1,
+      "inputTokens": 1260,
+      "outputTokens": 144,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    },
+    "explain_selection": {
+      "cases": 3,
+      "passed": 3,
+      "passRate": 1,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 0,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 0,
+      "calls": 3,
+      "inputTokens": 3656,
+      "outputTokens": 807,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    },
+    "follow_up": {
+      "cases": 1,
+      "passed": 0,
+      "passRate": 0,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 1,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 0,
+      "calls": 1,
+      "inputTokens": 941,
+      "outputTokens": 54,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    },
+    "grade": {
+      "cases": 1,
+      "passed": 1,
+      "passRate": 1,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 0,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 0,
+      "calls": 1,
+      "inputTokens": 891,
+      "outputTokens": 64,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    },
+    "summarise_project": {
+      "cases": 2,
+      "passed": 0,
+      "passRate": 0,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 0,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 0,
+      "calls": 2,
+      "inputTokens": 1847,
+      "outputTokens": 52,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    },
+    "teach_concept": {
+      "cases": 1,
+      "passed": 0,
+      "passRate": 0,
+      "schemaFailureRate": 0,
+      "missingCitationRate": 1,
+      "unsupportedClaimRate": 0,
+      "incompleteOutputRate": 0,
+      "invalidCitationRate": 1,
+      "calls": 1,
+      "inputTokens": 800,
+      "outputTokens": 89,
+      "p50LatencyMs": 0,
+      "maxLatencyMs": 0
+    }
+  },
+  "thresholds": [
+    {
+      "metric": "schemaFailureRate",
+      "scope": "all",
+      "value": 0,
+      "limit": "<= 0.02",
+      "ok": true
+    },
+    {
+      "metric": "missingCitationRate",
+      "scope": "all",
+      "value": 0.3333333333333333,
+      "limit": "<= 0.1",
+      "ok": false
+    },
+    {
+      "metric": "unsupportedClaimRate",
+      "scope": "all",
+      "value": 0,
+      "limit": "<= 0.05",
+      "ok": true
+    },
+    {
+      "metric": "incompleteOutputRate",
+      "scope": "all",
+      "value": 0,
+      "limit": "<= 0.02",
+      "ok": true
+    },
+    {
+      "metric": "invalidCitationRate",
+      "scope": "all",
+      "value": 0.043478260869565216,
+      "limit": "<= 0.05",
+      "ok": true
+    },
+    {
+      "metric": "passRate",
+      "scope": "assess",
+      "value": 1,
+      "limit": ">= 0.9",
+      "ok": true
+    },
+    {
+      "metric": "passRate",
+      "scope": "explain_flow",
+      "value": 1,
+      "limit": ">= 0.9",
+      "ok": true
+    },
+    {
+      "metric": "passRate",
+      "scope": "explain_selection",
+      "value": 1,
+      "limit": ">= 0.9",
+      "ok": true
+    },
+    {
+      "metric": "passRate",
+      "scope": "follow_up",
+      "value": 0,
+      "limit": ">= 0.9",
+      "ok": false
+    },
+    {
+      "metric": "passRate",
+      "scope": "grade",
+      "value": 1,
+      "limit": ">= 0.9",
+      "ok": true
+    },
+    {
+      "metric": "passRate",
+      "scope": "summarise_project",
+      "value": 0,
+      "limit": ">= 0.9",
+      "ok": false
+    },
+    {
+      "metric": "passRate",
+      "scope": "teach_concept",
+      "value": 0,
+      "limit": ">= 0.9",
+      "ok": false
+    }
+  ],
+  "failureCounts": {
+    "invalid_citation": 1,
+    "missing_citation": 2,
+    "missing_content": 3
+  }
+}

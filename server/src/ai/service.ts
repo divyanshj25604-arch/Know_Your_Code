@@ -21,7 +21,7 @@ import { topSymbols } from '../index/symbols';
 import { conceptIndex } from '../index/concepts';
 import { buildContextPack } from '../retrieval/context';
 import { logLlmCall, modelFor } from './cost';
-import { Executor, type RunContext, type RunResult } from './executor';
+import { Executor, type RunObserver, type RunContext, type RunResult } from './executor';
 import type { LlmClient } from './llm';
 import { PROMPT_VERSION } from './prompts';
 import { CAPABILITIES } from './registry';
@@ -71,8 +71,9 @@ export class AiService {
     private readonly db: Db,
     readonly llm: LlmClient | null,
     private readonly log: FastifyBaseLogger,
+    observer?: RunObserver,
   ) {
-    this.exec = new Executor(config, db, llm, log);
+    this.exec = new Executor(config, db, llm, log, observer);
   }
 
   get configured(): boolean {
@@ -702,11 +703,16 @@ export class AiService {
     parts.unshift(
       `[PROJECT_FACTS]\n${JSON.stringify(overview?.facts ?? {})}\n[FILE_LIST]\n${paths.slice(0, 120).join('\n')}`,
     );
+    // Charged to the user who imported the repository (P4.3): imports cannot spend the AI budget anonymously.
+    const owner = await this.db.query<{ owner_id: string }>(
+      `SELECT r.owner_id FROM snapshots s JOIN repositories r ON r.id = s.repository_id WHERE s.id=$1`,
+      [snapshotId],
+    );
     const env = await this.exec.run(
       CAPABILITIES.summarise_project,
       { paths },
       null,
-      { ownerId: null, snapshotId },
+      { ownerId: owner.rows[0]?.owner_id ?? null, snapshotId },
       parts.join('\n\n'),
     );
     return { status: 'ready', ...env.payload, provenance: 'explained' };
