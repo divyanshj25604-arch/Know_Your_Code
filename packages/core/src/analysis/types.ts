@@ -1,3 +1,5 @@
+import type { ExpressModel } from './express';
+
 export type SymbolKind = 'function' | 'method' | 'class' | 'variable' | 'parameter' | 'import' | 'export';
 
 export interface SymbolRow {
@@ -63,4 +65,6 @@ export interface AnalysisResult {
   /** Files that could not be analysed at all, with a reason. */
   failedFiles: { path: string; reason: string }[];
   timings: { projectMs: number; symbolsMs: number; edgesMs: number };
+  /** How an Express application is wired (P3.2); empty when the code has no Express app or client calls. */
+  express: ExpressModel;
 }

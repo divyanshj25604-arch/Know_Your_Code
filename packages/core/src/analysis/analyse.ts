@@ -3,6 +3,7 @@ import * as posix from '../util/posixPath';
 import { buildProject, readPathAliases, toRelPath, type PathAliases } from './project';
 import { applyStableKeys } from './symbolKey';
 import { detectConcepts } from './concepts';
+import { emptyExpressModel, extractExpress, type ExpressModel } from './express';
 import type {
   AnalysisInput,
   AnalysisResult,
@@ -685,7 +686,7 @@ function calleeNameNode(callee: Node): Node | null {
 
 function handleCalls(ctx: Ctx, sf: SourceFile) {
   const p = relPath(sf);
-  sf.forEachDescendant((n) => {
+  const visitCall = (n: Node) => {
     if (!Node.isCallExpression(n) && !Node.isNewExpression(n)) return;
     const callee = n.getExpression();
     if (callee.getKind() === SyntaxKind.ImportKeyword || callee.getKind() === SyntaxKind.SuperKeyword) return;
@@ -834,6 +835,12 @@ function handleCalls(ctx: Ctx, sf: SourceFile) {
       reason: 'no_declaration',
       meta: { calleeText },
     });
+  };
+  sf.forEachDescendant((n) => {
+    const before = ctx.edges.length;
+    visitCall(n);
+    // Where the call ends orders calls on one line by evaluation: in `f(g(x))`, g runs before f (flows, P3.2).
+    for (const e of ctx.edges.slice(before)) if (e.type === 'calls') e.meta.end = n.getEnd();
   });
 }
 
@@ -1005,6 +1012,33 @@ export async function analyse(files: AnalysisInput[], opts: AnalyseOptions = {})
       ctx.diagnostics.push({ path: relPath(sf), kind: 'analysis_failed', message: (e as Error).message });
     }
   }
+  let express: ExpressModel = emptyExpressModel();
+  try {
+    express = extractExpress(
+      {
+        checker: ctx.checker,
+        relPath,
+        externalOrigin: (e) => externalOrigin(ctx, e),
+        resolveFile: (spec, containing) => resolveModule(ctx, spec, containing).rel,
+        enclosingSymbol: (n) => enclosingSymbol(ctx, n),
+        functionSymbol: (n) => {
+          const nn = Node.isPropertyAccessExpression(n) ? n.getNameNode() : n;
+          const sym: SymbolRow | null =
+            Node.isArrowFunction(n) || Node.isFunctionExpression(n)
+              ? (ctx.scopeNodes.get(n.compilerNode) ?? null)
+              : mappedSymbol(ctx, declsOf(ctx.checker.getSymbolAtLocation(nn.compilerNode), ctx.checker));
+          return sym && (sym.kind === 'function' || sym.kind === 'method') ? sym : null;
+        },
+      },
+      analysed.filter((sf) => !failedFiles.some((f) => f.path === relPath(sf))),
+    );
+  } catch (e) {
+    ctx.diagnostics.push({
+      path: '(express)',
+      kind: 'analysis_failed',
+      message: `express: ${(e as Error).message}`,
+    });
+  }
   opts.onProgress?.(total, total);
   const t3 = performance.now();
   return {
@@ -1012,6 +1046,7 @@ export async function analyse(files: AnalysisInput[], opts: AnalyseOptions = {})
     edges: ctx.edges,
     diagnostics: ctx.diagnostics,
     failedFiles,
+    express,
     timings: { projectMs: Math.round(t1 - t0), symbolsMs: Math.round(t2 - t1), edgesMs: Math.round(t3 - t2) },
   };
 }

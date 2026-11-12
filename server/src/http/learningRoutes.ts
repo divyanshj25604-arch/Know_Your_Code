@@ -19,6 +19,7 @@ import {
 import { buildTour } from '../index/tour';
 import { getArchitecture } from '../index/architecture';
 import { conceptIndex } from '../index/concepts';
+import { flowSnapshot, getFlow, listFlows } from '../index/flows';
 import { assertUsable, authorizeSnapshotRead } from './snapshotAccess';
 import type { Services } from '../services';
 import { parse } from './validate';
@@ -97,5 +98,23 @@ export function registerLearningRoutes(app: FastifyInstance, svc: Services) {
     const { id } = parse(IdParam, req.params);
     const snap = assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
     return conceptIndex(db, snap.id);
+  });
+
+  // ---------------------------------------------------------------- request flows (P3.2), snapshot readers
+
+  app.get('/api/v1/snapshots/:id/flows', async (req, reply) => {
+    const { id } = parse(IdParam, req.params);
+    const snap = assertUsable((await authorizeSnapshotRead(svc, req, reply, id)).snap);
+    return listFlows(db, snap.id);
+  });
+
+  app.get('/api/v1/flows/:id', async (req, reply) => {
+    const { id } = parse(IdParam, req.params);
+    const snapshotId = await flowSnapshot(db, id);
+    if (!snapshotId) throw new KycError('NOT_FOUND');
+    assertUsable((await authorizeSnapshotRead(svc, req, reply, snapshotId)).snap);
+    const flow = await getFlow(db, id);
+    if (!flow) throw new KycError('NOT_FOUND');
+    return flow;
   });
 }

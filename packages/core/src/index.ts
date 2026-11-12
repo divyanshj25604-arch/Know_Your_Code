@@ -23,6 +23,22 @@ export { classifySelection, lineStarts, toOffset, type Classified } from './anal
 export { buildOverview, type OverviewInput } from './analysis/overview';
 export { detectConcepts } from './analysis/concepts';
 export {
+  emptyExpressModel,
+  type ClientCall,
+  type ExpressHandlerRef,
+  type ExpressModel,
+  type ExpressRoute,
+  type ExpressRouter,
+  type ExpressUse,
+} from './analysis/express';
+export {
+  discoverFlows,
+  urlMatchesRoute,
+  type DiscoveredFlow,
+  type RequestFlowStep,
+  type RequestFlowStepKind,
+} from './analysis/flows';
+export {
   detectModules,
   type ArchitectureMap,
   type ModuleDependency,
@@ -34,7 +50,7 @@ export { SYMBOL_KEY_VERSION, applyStableKeys, stableSymbolKeys } from './analysi
  * Identifies the analyser's output format. Bump when symbols, edges or names change for the same input, so analysis
  * runs made by different analysers can be told apart (recorded on every analysis run).
  */
-export const ANALYSER_VERSION = 'core-2';
+export const ANALYSER_VERSION = 'core-3';
 
 export {
   ANALYSABLE_EXT,

@@ -4,7 +4,14 @@ import type { FastifyBaseLogger } from 'fastify';
 import { ERROR_MESSAGES, type Overview, type StageInfo } from '@kyc/contracts';
 import type { Config } from '../config/env';
 import { withTx, type Db, type Queryable } from '../db/pool';
-import { KycError, readPathAliases, buildOverview, detectModules, type AnalysisResult } from '@kyc/core';
+import {
+  KycError,
+  readPathAliases,
+  buildOverview,
+  detectModules,
+  discoverFlows,
+  type AnalysisResult,
+} from '@kyc/core';
 import { GitHubClient } from '../ingestion/github';
 import { extractTarball, type ExtractLimits, type ExtractResult } from '../ingestion/extract';
 import { runAnalysis } from '../analysis/runner';
@@ -18,6 +25,7 @@ import {
 } from '../index/snapshots';
 import { insertFiles, listFilePaths } from '../index/files';
 import { persistArchitecture } from '../index/architecture';
+import { persistFlows } from '../index/flows';
 import { counts, persistAnalysis, topSymbols } from '../index/symbols';
 import { completeRun, currentRun, failRun, relinkExplanationSymbols, startRun } from '../index/runs';
 
@@ -205,6 +213,13 @@ async function persistContent(ctx: RunContext, fetched: Fetched, result: Analysi
         fetched.extracted.files.filter((f) => f.path === 'package.json' || f.path.endsWith('/package.json')),
         result.edges,
       ),
+    );
+    await persistFlows(
+      c,
+      id,
+      ctx.runId,
+      fileIds,
+      discoverFlows(result.express, result.symbols, result.edges),
     );
     const allFiles = await listFilePaths(c, id);
     const cnt = await counts(c, id);

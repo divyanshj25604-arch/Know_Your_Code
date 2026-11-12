@@ -73,6 +73,7 @@ function syntheticGraph(files: number, perFile: number): { files: ExtractedFile[
       edges,
       diagnostics: [],
       failedFiles: [],
+      express: { routers: [], uses: [], routes: [], clientCalls: [] },
       timings: { projectMs: 0, symbolsMs: 0, edgesMs: 0 },
     },
   };

@@ -253,3 +253,43 @@ export interface ConceptIndex {
     examples: { symbolId: string; symbolKey: string | null; name: string; path: string; line: number }[];
   }[];
 }
+
+/** A step of a request flow (P3.2). Unknown steps carry the reason the analysis could not follow them. */
+export type FlowStepKind = 'client' | 'route' | 'middleware' | 'handler' | 'call' | 'response' | 'unknown';
+
+export interface FlowStepView {
+  index: number;
+  kind: FlowStepKind;
+  label: string;
+  path: string | null;
+  line: number | null;
+  symbolId: string | null;
+  symbolKey: string | null;
+  /** verified: a stored call edge (`edgeId`); pattern: a recognised Express or client pattern; unknown: not followed. */
+  provenance: 'verified' | 'pattern' | 'unknown';
+  depth: number;
+  reason: string | null;
+  edgeId: string | null;
+}
+
+export interface FlowSummary {
+  id: string;
+  name: string;
+  method: string;
+  routePath: string | null;
+  clients: number;
+  stepCount: number;
+  unknownCount: number;
+  handler: { symbolId: string; name: string; path: string; line: number } | null;
+}
+
+/** Request flows of a snapshot. `available` is false when it was analysed before flow discovery. */
+export interface FlowsView {
+  available: boolean;
+  flows: FlowSummary[];
+}
+
+export interface FlowDetail extends FlowSummary {
+  snapshotId: string;
+  steps: FlowStepView[];
+}
