@@ -19,6 +19,8 @@ import { BookmarkButton, Bookmarks } from '../components/learning/Bookmarks';
 import { TourBar } from '../components/learning/TourBar';
 import { ArchitectureMap } from '../components/learning/ArchitectureMap';
 import { Concepts } from '../components/learning/Concepts';
+import { FlowList } from '../components/flows/FlowList';
+import { FlowWalkthrough } from '../components/flows/FlowWalkthrough';
 import type { Selection } from '@kyc/contracts';
 
 export function Workspace() {
@@ -412,6 +414,7 @@ function Loaded({
   const target = { id: snap.id, repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const learning = useWorkspace(target, 'learning');
   const [touring, setTouring] = useState(false);
+  const [flowId, setFlowId] = useState<string | null>(null);
   const bookmarkTarget = { repositoryId: snap.repositoryId, commitSha: snap.commitSha };
   const exploration = useWorkspace(target, 'exploration', initial);
 
@@ -444,6 +447,13 @@ function Loaded({
             snapshotId={snap.id}
             onOpenFile={(p) => {
               exploration.openFile(p);
+              go('explore');
+            }}
+          />
+          <FlowList
+            snapshotId={snap.id}
+            onWalk={(id) => {
+              setFlowId(id);
               go('explore');
             }}
           />
@@ -502,6 +512,16 @@ function Loaded({
           setDepth={setDepth}
           onUrl={onUrl}
           bookmarkTarget={bookmarkTarget}
+          banner={
+            flowId ? (
+              <FlowWalkthrough
+                flowId={flowId}
+                canNarrate={!share}
+                onGo={(p, l, label) => exploration.navigate(p, l, label)}
+                onClose={() => setFlowId(null)}
+              />
+            ) : null
+          }
           actions={
             <>
               {learning.entry && (

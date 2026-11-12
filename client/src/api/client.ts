@@ -1,5 +1,7 @@
 import {
   type ConceptIndex,
+  type FlowDetail,
+  type FlowsView,
   ERROR_MESSAGES,
   type AccountView,
   type AuthSessionResponse,
@@ -319,6 +321,8 @@ export function createApiClient(
     deleteBookmark: (id: string) => call<void>('DELETE', `/api/v1/bookmarks/${id}`),
     architecture: (snapshotId: string) =>
       call<ArchitectureView>('GET', `/api/v1/snapshots/${snapshotId}/architecture`),
+    flows: (snapshotId: string) => call<FlowsView>('GET', `/api/v1/snapshots/${snapshotId}/flows`),
+    flow: (flowId: string) => call<FlowDetail>('GET', `/api/v1/flows/${flowId}`),
     concepts: (snapshotId: string) => call<ConceptIndex>('GET', `/api/v1/snapshots/${snapshotId}/concepts`),
     teachConcept: (
       snapshotId: string,

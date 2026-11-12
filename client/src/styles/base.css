@@ -973,3 +973,16 @@ details.sec > summary {
   border-radius: var(--radius-control);
   padding: var(--s3);
 }
+.flow-steps {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s4);
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.flow-step {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+.flow-step.current {
+  background: var(--highlight);
+}

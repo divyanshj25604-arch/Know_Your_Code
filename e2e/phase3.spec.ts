@@ -111,3 +111,48 @@ test.describe('P3.3 concepts', () => {
     await expect(page.locator('.viewer-head .mono')).toHaveText('src/services/userService.js');
   });
 });
+
+test.describe('P3.2 request flows and P3.6 walkthrough', () => {
+  test('POST /auth/login is walked step by step with the code highlighted, and unknown hops are labelled', async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await goMode(page, 'Project');
+    const item = page.getByRole('listitem', { name: 'Flow POST /auth/login' });
+    await expect(item).toContainText('handled by login');
+    await item.getByRole('button', { name: 'Walk through POST /auth/login' }).click();
+    await expect(page).toHaveURL(/\/explore/);
+    const walk = page.getByRole('region', { name: 'Flow walkthrough' });
+    const steps = walk.getByRole('list', { name: 'Flow steps' });
+    await expect(steps.getByRole('listitem')).toHaveCount(8);
+    await expect(steps.getByRole('listitem').nth(5)).toContainText('Unknown');
+    await expect(steps.getByRole('listitem').nth(5)).toContainText(/no declaration was found/);
+    await walk.getByRole('button', { name: 'Start' }).click();
+    await expect(walk.getByText('Step 1 of 8: Route — POST /auth/login')).toBeVisible();
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/routes/auth.js');
+    await expect(page.locator('.cm-kyc-target')).toContainText("router.post('/login', login);");
+    await walk.getByRole('button', { name: 'Next step' }).click();
+    await expect(walk.getByText(/Step 2 of 8: Middleware — express\.json\(\)/)).toBeVisible();
+    await expect(page.locator('.cm-kyc-target')).toContainText('app.use(express.json());');
+    await walk.getByRole('button', { name: 'Next step' }).click();
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/controllers/authController.js');
+    await expect(page.locator('.cm-kyc-target')).toContainText('async function login');
+    await walk.getByRole('button', { name: 'Next step' }).click();
+    await expect(walk.getByText('Step 4 of 8: Calls — findUserByEmail')).toBeVisible();
+    await expect(page.locator('.viewer-head .mono')).toHaveText('src/services/userService.js');
+    await expect(steps.locator('[aria-current="step"]')).toContainText('findUserByEmail');
+    // Narration attaches to the verified step through its call edge.
+    await walk.getByRole('button', { name: 'Narrate this flow' }).click();
+    await expect(walk.getByLabel('Narration')).toHaveText('login calls findUserByEmail here.', {
+      timeout: 15_000,
+    });
+    await walk.getByRole('button', { name: 'Previous step' }).click();
+    await expect(walk.getByLabel('Narration')).toContainText('verified calls');
+    // Play advances on its own, and can be paused.
+    await walk.getByRole('button', { name: 'Play' }).click();
+    await expect(walk.getByText(/Step 4 of 8/)).toBeVisible({ timeout: 5_000 });
+    await walk.getByRole('button', { name: 'Pause' }).click();
+    await walk.getByRole('button', { name: 'Close flow' }).click();
+    await expect(walk).toHaveCount(0);
+  });
+});
