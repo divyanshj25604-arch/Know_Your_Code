@@ -30,6 +30,12 @@ All documentation lives in [`project-docs/`](project-docs/). Nothing else in the
 | `09_Phase_1_Completion_Report.md`                       | What Phase 1 (and its Phase 0 prerequisites) changed, how it was verified, acceptance-criteria evidence, limitations and debt                                         |
 | `10_Phase_2_Completion_Report.md`                       | Phase 2 (P2.1–P2.4): what changed, evidence per acceptance criterion, what is blocked on P0.2, risks                                                                  |
 | `11_Phase_3_Completion_Report.md`                       | Phase 3 (P3.1–P3.7): six learning levels, flows, paths; acceptance evidence, migrations, APIs, limitations, Phase 4 dependencies                                      |
+| `12_Phase_4_1_Completion_Report.md`                     | P4.1 Tauri desktop shell: security model, build, macOS/Windows signing and release procedure, manual checklist                                                        |
+| `13_Phase_4_2_Completion_Report.md`                     | P4.2 deployment: Render selection, `render.yaml`, single-instance guard, backups and restore, monitoring and alerts, staging steps                                    |
+| `14_Phase_4_3_Completion_Report.md`                     | P4.3 AI evaluation harness, proposed thresholds, budget reservations, the gated live-evaluation command                                                               |
+| `15_Phase_4_4_Completion_Report.md`                     | P4.4 secret detection: scope decision (deferred until private repos) and implementation plan                                                                          |
+| `16_Phase_4_5_Completion_Report.md`                     | P4.5 provider pricing and privacy copy audit, verified Groq facts (dated)                                                                                             |
+| `17_Phase_4_Final_Completion_Report.md`                 | Phase 4 summary: status of every acceptance criterion, test results, blocked dependencies, manual steps                                                               |
 
 Diagrams are PNGs in `project-docs/images/`. The same documents also exist as Claude Docs (shareable copies); the files in
 `project-docs/` are canonical.
@@ -95,9 +101,17 @@ The previous `docs/` folder (product blueprint 00–14, 99, `docs/implementation
   `explanation/` presentational parts, `learning/` architecture map, concepts, bookmarks, tour, learning paths,
   `flows/` flow explorer and walkthrough), `hooks/useWorkspace.ts` (one track), `state/` (branching trail, query cache,
   explanation store), `api/` (`createApiClient`, base URL and auth strategy in `config.ts`), `styles/`.
-- `e2e/` — Playwright specs (`live.spec.ts` needs `LIVE=1` and an API key).
-- `scripts/` — smoke test and measurement scripts.
-- `project-docs/` — the source-of-truth documents (00–11).
+- `server/src/ops/` — operations: error reports and 5xx/job alerts (`monitor.ts`), single-instance worker lock
+  (`instanceLock.ts`), database connectivity (`database.ts`).
+- `server/eval/` — AI evaluation harness (dataset, runner through the real API, scoring, reports, gated live CLI);
+  `eval/baselines/fake.json` is the regression baseline for the test provider.
+- `desktop/` — Tauri 2 shell (`src-tauri/`: six native commands, capabilities, CSP; `scripts/tauri.mjs` build wrapper).
+  The client side is `client/src/desktop/` (start-up gate, bridge).
+- `render.yaml` — Render Blueprint (staging + production web services and databases).
+- `e2e/` — Playwright specs (`live.spec.ts` needs `LIVE=1` and an API key; `desktop.spec.ts` serves the client from a
+  second origin and stubs Tauri IPC).
+- `scripts/` — smoke test (`smoke.mjs`, covers all modes and auth), database backup and restore, measurement scripts.
+- `project-docs/` — the source-of-truth documents (00–17).
 
 ## Commands
 
@@ -111,6 +125,12 @@ npm run test:live    # real GitHub; real Claude only if ANTHROPIC_API_KEY is set
 npm run build        # client/dist + server/dist
 npm start            # node server/dist/server.js (set NODE_ENV=production explicitly in deploys)
 npm run db:migrate   # apply SQL migrations
+npm run eval -w server                 # AI evaluation on the test provider (free); eval:live is gated (P0.2)
+npm run ai:usage -w server             # AI usage per day/capability/model from the cost ledger
+npm run dev -w @kyc/desktop            # desktop shell against the local API (needs Rust)
+KYC_DESKTOP_API_ORIGINS=https://… npm run build -w @kyc/desktop   # desktop release build (unsigned without keys)
+BASE_URL=https://… npm run smoke       # post-deploy smoke test (no AI calls without --ai)
+scripts/db-backup.sh / db-restore.sh   # logical backup; restore into an empty database only
 ```
 
 ## Working conventions
@@ -127,6 +147,12 @@ npm run db:migrate   # apply SQL migrations
 - The built server (`npm start`) refuses to start unless `NODE_ENV=production` is set; use `npm run dev` locally.
 - Analysis output changed in Phase 3 (`ANALYSER_VERSION` `core-3`): snapshots analysed earlier have no concept tags or
   flows until re-imported (the flows API reports `available: false`).
+- Every model call reserves budget first (`reserveBudget` in `ai/cost.ts`); never call a provider outside the executor.
+  Production with a real provider needs explicit `MODEL_*_USD_PER_MTOK` prices; Groq needs explicit model names.
+- The eval harness empties its database: it refuses names without `_test`/`_eval`. Never point it at real data.
+- Only the process holding the worker advisory lock runs imports (`server.ts`); tests use an unpaused runner.
+- Privacy copy comes from `HealthView.privacy` (`components/PrivacyFacts.tsx`); do not hard-code provider names,
+  retention days, prices or provider data-handling claims in the UI.
 - Flow steps are evidence: a `verified` step must reference its stored call edge (enforced by the database), and
   anything not followed is an `unknown` step with a reason. Never add a step the analysis did not find.
 
@@ -141,7 +167,7 @@ Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Documen
 | Brand pass (unscheduled)         | Implement `08_Brand_Identity_Requirements.md` section E                                                                | Not started; needs approval                                                                                                  |
 | 2 — Restructure                  | P2.1 learner state, P2.2 app shell, P2.3 AI registry, P2.4 retrieval planner                                           | **Done** 2026-11-12, awaiting review; P2.3 real-model criteria blocked on P0.2 (see `10_Phase_2_Completion_Report.md`)       |
 | 3 — Six levels                   | P3.1 architecture, P3.2 flows, P3.3 concepts, P3.4 bookmarks/tours, P3.5 assessment, P3.6 walkthrough, P3.7 paths      | **Done** 2026-11-12, awaiting review; AI parts unverified on a real model until P0.2 (see `11_Phase_3_Completion_Report.md`) |
-| 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | Not started (awaiting approval); P4.3 blocked on P0.2                                                                        |
+| 4 — Ship                         | P4.1 desktop shell, P4.2 deploy + ops, P4.3 AI evaluation, P4.4 redaction, P4.5 Groq                                   | **Implemented** 2026-11-12, committed (not pushed); deploy, signing, live eval BLOCKED; P4.4 deferred (see 17)               |
 
 ## Changelog
 
@@ -159,3 +185,8 @@ Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Documen
   assessment history and rubric grading, concept detection and teaching, Express adapter with request flows, flow
   walkthrough, learning paths with lessons, missions and checks; migrations 010–013 with rollback scripts. P0.2 is
   deferred to the tech team. Added `11_Phase_3_Completion_Report.md`.
+- 2026-11-12 — Phase 4 implemented and committed (not pushed, not deployed): Tauri desktop shell with OS credential
+  storage and build-time API allowlist; Render Blueprint, single-instance worker lock, error reports and 5xx/job
+  alerts, backup/restore scripts, migration safety checks; AI evaluation harness and per-user budget reservations
+  (migration 014); provider-neutral privacy copy and removal of retired Groq defaults. P4.4 deferred by scope.
+  Fixed share-token signature malleability (canonical spelling only). Added `12`–`17` completion reports.
