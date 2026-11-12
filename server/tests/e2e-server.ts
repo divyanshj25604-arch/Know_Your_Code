@@ -53,6 +53,8 @@ async function main() {
     LOG_LEVEL: 'warn',
     STATIC_DIR: new URL('../../client/dist', import.meta.url).pathname,
     RATE_LIMIT_DISABLED: 'true',
+    // The desktop E2E serves the client from this origin and calls the API cross-origin with bearer tokens.
+    CORS_ALLOWED_ORIGINS: 'http://127.0.0.1:4610',
     DAILY_SPEND_CAP_USD: '100',
     MAX_ANALYSABLE_FILES: '60',
     // Production always analyses in a worker thread, so the harness compiles the real worker entry.
@@ -60,7 +62,7 @@ async function main() {
   } as NodeJS.ProcessEnv);
   const db = createPool(dbUrl);
   await migrate(db);
-  await db.query('TRUNCATE users, deletion_log, events, llm_calls CASCADE');
+  await db.query('TRUNCATE users, deletion_log, events, llm_calls, ai_reservations CASCADE');
   const app = await buildApp({ config, db });
   await app.listen({ port, host: '127.0.0.1' });
   console.log(`e2e server ready on ${port}`);

@@ -4,6 +4,7 @@ import { Header } from './components/Shell';
 import { Landing } from './pages/Landing';
 import { Processing } from './pages/Processing';
 import { Start } from './pages/Start';
+import { isDesktop } from './desktop/bridge';
 // The workspace pulls in the code editor; load it only when a repository is opened.
 const Workspace = lazy(() => import('./pages/Workspace').then((m) => ({ default: m.Workspace })));
 
@@ -27,6 +28,7 @@ function NotFound() {
  */
 const useHashRoutes =
   import.meta.env.VITE_ROUTER === 'hash' ||
+  isDesktop() ||
   (typeof window !== 'undefined' && !/^https?:$/.test(window.location.protocol));
 const Router = useHashRoutes ? HashRouter : BrowserRouter;
 

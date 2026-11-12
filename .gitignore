@@ -13,3 +13,5 @@ test-results/
 *.tsbuildinfo
 server/tests/.build/
 .vitest/
+client/dist-desktop/
+server/eval/reports/

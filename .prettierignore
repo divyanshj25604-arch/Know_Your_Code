@@ -4,3 +4,8 @@ package-lock.json
 dist/
 playwright-report/
 test-results/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/icons/
+client/dist-desktop/
+server/eval/reports/

@@ -383,10 +383,17 @@ export function createApiClient(
 export type ApiClient = ReturnType<typeof createApiClient>;
 
 /**
- * The web app's client: same-origin by default, or VITE_API_BASE_URL when the API is served elsewhere on the same
- * site. Cookie authentication, exactly as before P1.6.
+ * The app's client. On the web: same-origin by default, or VITE_API_BASE_URL when the API is served elsewhere on the
+ * same site, with cookie authentication exactly as before P1.6. The desktop shell (P4.1) replaces it once, at start-up,
+ * with a bearer client for the configured cloud API (`useApiClient`). Modules import `api` as a live binding, so they
+ * always see the current client.
  */
-export const api: ApiClient = createApiClient(
+export let api: ApiClient = createApiClient(
   { baseUrl: import.meta.env.VITE_API_BASE_URL ?? '', auth: { kind: 'cookie' } },
   { production: import.meta.env.PROD },
 );
+
+/** Replace the app's client (desktop shell only). */
+export function useApiClient(client: ApiClient): void {
+  api = client;
+}

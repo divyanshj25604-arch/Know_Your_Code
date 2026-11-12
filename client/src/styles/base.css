@@ -282,6 +282,8 @@ p {
 
 input[type='url'],
 input[type='search'],
+input[type='email'],
+input[type='password'],
 textarea,
 select {
   font: inherit;
@@ -999,4 +1001,22 @@ details.sec > summary {
 }
 .path-item p {
   margin: var(--s1) 0;
+}
+
+/* Desktop shell (P4.1): connect and sign-in screens, and the account bar above the app. */
+.desktop-gate {
+  padding-top: var(--s5, 48px);
+}
+.desktop-gate form {
+  display: grid;
+  gap: var(--s2);
+}
+.desktop-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--s3);
+  padding: 4px var(--s3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
 }
