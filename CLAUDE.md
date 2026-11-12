@@ -36,6 +36,8 @@ All documentation lives in [`project-docs/`](project-docs/). Nothing else in the
 | `15_Phase_4_4_Completion_Report.md`                     | P4.4 secret detection: scope decision (deferred until private repos) and implementation plan                                                                          |
 | `16_Phase_4_5_Completion_Report.md`                     | P4.5 provider pricing and privacy copy audit, verified Groq facts (dated)                                                                                             |
 | `17_Phase_4_Final_Completion_Report.md`                 | Phase 4 summary: status of every acceptance criterion, test results, blocked dependencies, manual steps                                                               |
+| `product-direction/ORIGINAL-PRD.md`                     | Original product requirements, UX and UI specification v1.0: vision, seven modules, MVP scope, journey, Explain This Line, visualisation, brand, acceptance criteria  |
+| `product-direction/reference-sketches/*.png`            | Wireframe sketches for the PRD: `landing-and-import.png`, `analysis-progress.png`, `explore-workspace.png`                                                            |
 
 Diagrams are PNGs in `project-docs/images/`. The same documents also exist as Claude Docs (shareable copies); the files in
 `project-docs/` are canonical.
@@ -190,3 +192,5 @@ Phases and task IDs are defined in section 7 of `00_Engineering_Decision_Documen
   alerts, backup/restore scripts, migration safety checks; AI evaluation harness and per-user budget reservations
   (migration 014); provider-neutral privacy copy and removal of retired Groq defaults. P4.4 deferred by scope.
   Fixed share-token signature malleability (canonical spelling only). Added `12`–`17` completion reports.
+- 2026-11-12 — Added `project-docs/product-direction/`: the original PRD (`ORIGINAL-PRD.md`, v1.0) and its wireframe
+  reference sketches.
