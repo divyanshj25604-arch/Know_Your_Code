@@ -1,10 +1,13 @@
 import { useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
+import { PrivacyFacts } from './PrivacyFacts';
+import { useHealth } from './Shell';
 
 export function RepoMenu({ repositoryId, onDeleted }: { repositoryId: string; onDeleted: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const health = useHealth();
 
   const confirm = async () => {
     setBusy(true);
@@ -31,12 +34,7 @@ export function RepoMenu({ repositoryId, onDeleted }: { repositoryId: string; on
           </button>
           <details className="menu-sub">
             <summary>About privacy</summary>
-            <p>
-              Only public repositories can be opened. Your files are stored for 7 days, or until you delete
-              them, and are then removed. Short snippets of the code you select are sent to the AI provider
-              (Anthropic) to write explanations. Secrets are removed before anything is stored or sent.
-              Imported code is never run.
-            </p>
+            <PrivacyFacts health={health} lead={['Only public repositories can be opened.']} />
           </details>
         </div>
       </details>

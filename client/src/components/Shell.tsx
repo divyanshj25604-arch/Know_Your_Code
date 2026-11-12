@@ -39,7 +39,8 @@ export function AiStatusBanner({ health }: { health: HealthView | null }) {
   if (health.ai === 'test_provider') {
     return (
       <Banner>
-        Test mode: explanations come from a deterministic test provider, not from Claude. Relations are real.
+        Test mode: explanations come from a deterministic test provider, not from an AI model. Relations are
+        real.
       </Banner>
     );
   }

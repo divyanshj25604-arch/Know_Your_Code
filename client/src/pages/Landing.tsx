@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type MySnapshot } from '../api/client';
 import { AiStatusBanner, Header, useHealth } from '../components/Shell';
+import { PrivacyFacts } from '../components/PrivacyFacts';
 
 export function Landing() {
   const health = useHealth();
@@ -71,15 +72,8 @@ export function Landing() {
 
         <section aria-labelledby="privacy" className="how">
           <h2 id="privacy">What happens to your code</h2>
-          <ul className="plain-list">
-            <li>Public repositories only. No sign-up.</li>
-            <li>Stored for 7 days, or until you delete it. Imported code is never executed.</li>
-            <li>
-              Short snippets of what you select are sent to an AI provider (Anthropic's Claude) to write
-              explanations. Secrets are removed first.
-            </li>
-            <li>We never write code for you. The goal is that you can explain it yourself.</li>
-          </ul>
+          <PrivacyFacts health={health} lead={['Public repositories only. No sign-up.']} />
+          <p>We never write code for you. The goal is that you can explain it yourself.</p>
         </section>
       </main>
     </div>

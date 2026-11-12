@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import { ErrorState } from '../components/ui';
 import { RepoUrlInput } from '../components/RepoUrlInput';
 import { AiStatusBanner, Header, useHealth } from '../components/Shell';
+import { PrivacyFacts } from '../components/PrivacyFacts';
 import { SAMPLE_REPOS } from '../lib/repoUrl';
 
 export function Start() {
@@ -81,15 +82,7 @@ export function Start() {
           <h2 id="priv" className="panel-h">
             Before you paste
           </h2>
-          <ul className="plain-list">
-            <li>Only public repositories can be opened.</li>
-            <li>Your files are stored for 7 days or until you delete them.</li>
-            <li>
-              Short snippets of the code you select are sent to Anthropic (Claude) to write explanations.
-              Secrets are removed first.
-            </li>
-            <li>We never run your code.</li>
-          </ul>
+          <PrivacyFacts health={health} lead={['Only public repositories can be opened.']} />
         </section>
         <p>
           <Link to="/">← Back</Link>

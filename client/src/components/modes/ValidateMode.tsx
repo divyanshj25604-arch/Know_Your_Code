@@ -81,7 +81,8 @@ function ValidateItem({
       )}
       {stored && !stored.snapshotId && (
         <p className="muted small">
-          This code was deleted after 7 days. Import the repository again to practise.
+          This code has been deleted (imported code is kept for a limited time). Import the repository again
+          to practise.
         </p>
       )}
     </li>
