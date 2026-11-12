@@ -1,0 +1,424 @@
+import {
+  type AnnotationCreate,
+  type AnnotationView,
+  type FileGraphView,
+  type FileOutlineView,
+  type RepositorySource,
+  type ConceptIndex,
+  type PathItemResult,
+  type PathItemSubmit,
+  type PathsView,
+  type FlowDetail,
+  type FlowsView,
+  ERROR_MESSAGES,
+  type AccountView,
+  type AuthSessionResponse,
+  type ClaimResponse,
+  type ArchitectureView,
+  type AssessmentResults,
+  type BookmarkRequest,
+  type BookmarkView,
+  type ErrorCode,
+  type TourView,
+  type ExplanationBody,
+  type LearnerPositionInput,
+  type LearnerPositionView,
+  type LearnerPositionsResponse,
+  type LearnerTrack,
+  type MeResponse,
+  type ShareTokenResponse,
+  type TokenTransport,
+  type FileView,
+  type HealthView,
+  type ImportResponse,
+  type Overview,
+  type Relations,
+  type ResolveResponse,
+  type Selection,
+  type SnapshotView,
+  type TreeNode,
+  type Depth,
+} from '@kyc/contracts';
+import { ApiConfigError, validateApiConfig, type ApiConfig, type AuthStrategy } from './config';
+
+export { ApiConfigError, type ApiConfig, type AuthStrategy };
+
+export class ApiError extends Error {
+  constructor(
+    public readonly code: ErrorCode,
+    message: string,
+    public readonly retryable: boolean,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+  /** What the user can do next (docs/05 §17). */
+  get action(): string | undefined {
+    return ERROR_MESSAGES[this.code]?.action;
+  }
+}
+
+const networkError = () =>
+  new ApiError('SERVICE_UNAVAILABLE', ERROR_MESSAGES.SERVICE_UNAVAILABLE.message, true, 0);
+
+async function toApiError(res: Response): Promise<ApiError> {
+  try {
+    const j = (await res.json()) as { error?: { code?: ErrorCode; message?: string; retryable?: boolean } };
+    const code = j.error?.code && j.error.code in ERROR_MESSAGES ? j.error.code : 'SERVICE_UNAVAILABLE';
+    return new ApiError(
+      code,
+      j.error?.message || ERROR_MESSAGES[code].message,
+      j.error?.retryable ?? false,
+      res.status,
+    );
+  } catch {
+    return new ApiError('SERVICE_UNAVAILABLE', ERROR_MESSAGES.SERVICE_UNAVAILABLE.message, true, res.status);
+  }
+}
+
+/** How one configured client talks to the server: URL prefix, credentials mode and per-request headers. */
+interface Transport {
+  url(path: string): string;
+  credentials: RequestCredentials;
+  headers(extra?: Record<string, string>): Record<string, string>;
+  /** Called with every failed response, before the error is thrown (bearer clients detect expired tokens). */
+  onError(err: ApiError): void;
+}
+
+function makeTransport(config: ApiConfig, shareToken: () => string | null): Transport {
+  const auth = config.auth;
+  return {
+    url: (path) => `${config.baseUrl}${path}`,
+    // Cookies are only ever sent to the page's own origin; bearer clients never send cookies at all.
+    credentials: auth.kind === 'cookie' ? 'same-origin' : 'omit',
+    headers(extra = {}) {
+      const h: Record<string, string> = { ...extra };
+      if (auth.kind === 'bearer') {
+        const token = auth.getToken();
+        if (token) h.authorization = `Bearer ${token}`;
+      }
+      const share = shareToken();
+      if (share) h['x-kyc-share'] = share;
+      return h;
+    },
+    onError(err) {
+      if (auth.kind === 'bearer' && err.code === 'AUTH_REQUIRED') auth.onUnauthorized?.();
+    },
+  };
+}
+
+async function request<T>(
+  t: Transport,
+  method: string,
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+  keepalive = false,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(t.url(path), {
+      method,
+      // keepalive lets a request finish while the page unloads (saving the learner's place on reload).
+      ...(keepalive ? { keepalive: true } : {}),
+      credentials: t.credentials,
+      // A Blob (a ZIP upload) is sent as raw bytes; everything else as JSON.
+      headers: t.headers(
+        body instanceof Blob
+          ? { 'content-type': 'application/zip' }
+          : body !== undefined
+            ? { 'content-type': 'application/json' }
+            : {},
+      ),
+      body: body instanceof Blob ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    throw networkError();
+  }
+  if (!res.ok) {
+    const err = await toApiError(res);
+    t.onError(err);
+    throw err;
+  }
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+export interface SseMessage {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/** POST + Server-Sent Events (EventSource cannot POST). Resolves when the stream ends. */
+async function streamSse(
+  t: Transport,
+  path: string,
+  body: unknown,
+  onEvent: (m: SseMessage) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(t.url(path), {
+      method: 'POST',
+      credentials: t.credentials,
+      headers: t.headers({ 'content-type': 'application/json', accept: 'text/event-stream' }),
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    throw networkError();
+  }
+  if (!res.ok) {
+    const err = await toApiError(res);
+    t.onError(err);
+    throw err;
+  }
+  if (!res.body) throw networkError();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let i: number;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        if (!block.trim() || block.startsWith(':')) continue;
+        const event = /^event: (.+)$/m.exec(block)?.[1];
+        const data = /^data: (.+)$/m.exec(block)?.[1];
+        if (!event || data === undefined) continue;
+        try {
+          onEvent({ event, data: JSON.parse(data) as Record<string, unknown> });
+        } catch {
+          // A malformed event is ignored rather than breaking the whole stream.
+        }
+      }
+    }
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    throw networkError();
+  }
+}
+
+export interface MySnapshot {
+  snapshotId: string;
+  repositoryId: string;
+  repository: { owner: string; name: string; source: RepositorySource };
+  status: string;
+  expiresAt: string;
+}
+
+export interface ThreadMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  intent: 'followup' | 'concept';
+  body: Record<string, unknown>;
+}
+
+export interface CheckQuestion {
+  checkId: string;
+  type: 'predict' | 'trace' | 'why';
+  /** choice: pick one of `options`; open: answer in your own words (graded against a rubric). */
+  format?: 'choice' | 'open';
+  question: string;
+  options: string[];
+}
+
+/** A stored explanation and its thread, as returned by GET /explanations/:id. */
+export interface StoredExplanation {
+  id: string;
+  /** null once retention has deleted the code; the history itself is kept. */
+  snapshotId: string | null;
+  selection: Selection;
+  kind: string;
+  depth: string;
+  parentId: string | null;
+  body: ExplanationBody;
+  refsStripped: number;
+  messages: ThreadMessage[];
+}
+
+export interface CheckResult {
+  /** Free-text answers are graded: correct, partly or incorrect. */
+  verdict?: 'correct' | 'partly' | 'incorrect';
+  score?: number;
+  points?: { point: string; met: boolean }[];
+  correct: boolean;
+  feedback: string;
+  refs: { path: string; line: number }[];
+  correctIndex: number | null;
+}
+
+/** Sign-in result as the client sees it: the bearer token, if any, is handed to the caller to store securely. */
+export interface SignedIn {
+  user: AccountView;
+  expiresAt: string;
+  token?: string;
+  claimable: AuthSessionResponse['claimable'];
+}
+
+/**
+ * One API client for one configuration. The web app uses the default `api` below; a desktop shell creates its own
+ * with an absolute base URL and bearer authentication.
+ */
+export function createApiClient(
+  config: ApiConfig,
+  opts: { pageOrigin?: string | null; production?: boolean } = {},
+) {
+  const pageOrigin = opts.pageOrigin ?? (typeof window !== 'undefined' ? window.location.origin : null);
+  const valid = validateApiConfig(config, pageOrigin, opts.production ?? false);
+  let shareToken: string | null = null;
+  const t = makeTransport(valid, () => shareToken);
+  const transport: TokenTransport = valid.auth.kind === 'cookie' ? 'cookie' : 'bearer';
+  const call = <T>(method: string, path: string, body?: unknown, signal?: AbortSignal, keepalive = false) =>
+    request<T>(t, method, path, body, signal, keepalive);
+
+  return {
+    config: valid,
+    /** Read-only share link token to send with snapshot reads (null to stop). */
+    setShareToken(token: string | null) {
+      shareToken = token;
+    },
+
+    health: (signal?: AbortSignal) => call<HealthView>('GET', '/api/v1/health', undefined, signal),
+    importRepo: (url: string) => call<ImportResponse>('POST', '/api/v1/repositories', { url }),
+    /** Import a repository from a ZIP archive (raw bytes; the file name names the project). */
+    importZip: (file: Blob, name: string) =>
+      call<ImportResponse>('POST', `/api/v1/uploads?name=${encodeURIComponent(name)}`, file),
+    fileGraph: (id: string) => call<FileGraphView>('GET', `/api/v1/snapshots/${id}/file-graph`),
+    fileOutline: (id: string, path: string) =>
+      call<FileOutlineView>('GET', `/api/v1/snapshots/${id}/file-outline?path=${encodeURIComponent(path)}`),
+    annotations: (repositoryId: string) =>
+      call<{ annotations: AnnotationView[] }>('GET', `/api/v1/repositories/${repositoryId}/annotations`),
+    createAnnotation: (repositoryId: string, a: AnnotationCreate) =>
+      call<AnnotationView>('POST', `/api/v1/repositories/${repositoryId}/annotations`, a),
+    updateAnnotation: (id: string, body: string) =>
+      call<AnnotationView>('PATCH', `/api/v1/annotations/${id}`, { body }),
+    deleteAnnotation: (id: string) => call<void>('DELETE', `/api/v1/annotations/${id}`),
+    snapshot: (id: string, signal?: AbortSignal) =>
+      call<SnapshotView>('GET', `/api/v1/snapshots/${id}`, undefined, signal),
+    overview: (id: string) => call<Overview>('GET', `/api/v1/snapshots/${id}/overview`),
+    tree: (id: string) => call<{ root: TreeNode }>('GET', `/api/v1/snapshots/${id}/tree`),
+    file: (id: string, path: string) =>
+      call<FileView>('GET', `/api/v1/snapshots/${id}/file?path=${encodeURIComponent(path)}`),
+    resolve: (id: string, selection: Selection) =>
+      call<ResolveResponse>('POST', `/api/v1/snapshots/${id}/resolve`, { selection }),
+    relations: (symbolId: string) => call<Relations>('GET', `/api/v1/symbols/${symbolId}/relations`),
+    deleteRepo: (repositoryId: string) =>
+      call<{ deletedSnapshots: number }>('DELETE', `/api/v1/repositories/${repositoryId}`),
+    mySnapshots: () => call<{ snapshots: MySnapshot[] }>('GET', '/api/v1/my/snapshots'),
+    shareSnapshot: (id: string, ttlHours?: number) =>
+      call<ShareTokenResponse>('POST', `/api/v1/snapshots/${id}/share-tokens`, ttlHours ? { ttlHours } : {}),
+    revokeSnapshotShares: (id: string) => call<void>('DELETE', `/api/v1/snapshots/${id}/share-tokens`),
+    feedback: (b: {
+      targetType: 'explanation' | 'message' | 'check';
+      targetId: string;
+      rating: 'up' | 'down';
+      reason?: string;
+    }) => call<void>('POST', '/api/v1/feedback', b),
+    event: (name: string, props: Record<string, string | number | boolean> = {}) =>
+      call<void>('POST', '/api/v1/events', { events: [{ name, props }] }).catch(() => undefined),
+    explanation: (id: string) => call<StoredExplanation>('GET', `/api/v1/explanations/${id}`),
+    positions: (repositoryId: string) =>
+      call<LearnerPositionsResponse>('GET', `/api/v1/repositories/${repositoryId}/positions`),
+    savePosition: (repositoryId: string, track: LearnerTrack, p: LearnerPositionInput, keepalive = false) =>
+      call<LearnerPositionView>(
+        'PUT',
+        `/api/v1/repositories/${repositoryId}/positions/${track}`,
+        p,
+        undefined,
+        keepalive,
+      ),
+    explainFlow: (
+      b: { snapshotId: string; symbolId: string; hops?: number },
+      onEvent: (m: SseMessage) => void,
+      signal?: AbortSignal,
+    ) => streamSse(t, '/api/v1/flows/explain', b, onEvent, signal),
+    bookmarks: (repositoryId: string) =>
+      call<{ bookmarks: BookmarkView[] }>('GET', `/api/v1/repositories/${repositoryId}/bookmarks`),
+    saveBookmark: (repositoryId: string, b: BookmarkRequest) =>
+      call<BookmarkView>('POST', `/api/v1/repositories/${repositoryId}/bookmarks`, b),
+    deleteBookmark: (id: string) => call<void>('DELETE', `/api/v1/bookmarks/${id}`),
+    architecture: (snapshotId: string) =>
+      call<ArchitectureView>('GET', `/api/v1/snapshots/${snapshotId}/architecture`),
+    paths: (snapshotId: string) => call<PathsView>('GET', `/api/v1/snapshots/${snapshotId}/paths`),
+    submitPathItem: (snapshotId: string, pathId: string, itemId: string, body: PathItemSubmit) =>
+      call<PathItemResult>(
+        'POST',
+        `/api/v1/snapshots/${snapshotId}/paths/${encodeURIComponent(pathId)}/items/${encodeURIComponent(itemId)}`,
+        body,
+      ),
+    flows: (snapshotId: string) => call<FlowsView>('GET', `/api/v1/snapshots/${snapshotId}/flows`),
+    flow: (flowId: string) => call<FlowDetail>('GET', `/api/v1/flows/${flowId}`),
+    concepts: (snapshotId: string) => call<ConceptIndex>('GET', `/api/v1/snapshots/${snapshotId}/concepts`),
+    teachConcept: (
+      snapshotId: string,
+      conceptId: string,
+      onEvent: (m: SseMessage) => void,
+      signal?: AbortSignal,
+    ) =>
+      streamSse(
+        t,
+        `/api/v1/snapshots/${snapshotId}/concepts/${encodeURIComponent(conceptId)}/teach`,
+        {},
+        onEvent,
+        signal,
+      ),
+    tour: (snapshotId: string) => call<TourView>('GET', `/api/v1/snapshots/${snapshotId}/tour`),
+    answerCheckText: (checkId: string, text: string) =>
+      call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { text }),
+    createCheck: (explanationId: string, format: 'choice' | 'open' = 'choice') =>
+      call<CheckQuestion>('POST', `/api/v1/explanations/${explanationId}/checks`, { format }),
+    assessment: (repositoryId: string) =>
+      call<AssessmentResults>('GET', `/api/v1/repositories/${repositoryId}/assessment`),
+    answerCheck: (checkId: string, answerIndex: number) =>
+      call<CheckResult>('POST', `/api/v1/checks/${checkId}/answer`, { answerIndex }),
+    explain: (
+      b: { snapshotId: string; selection: Selection; depth: Depth },
+      onEvent: (m: SseMessage) => void,
+      signal?: AbortSignal,
+    ) => streamSse(t, '/api/v1/explanations', b, onEvent, signal),
+    message: (
+      explanationId: string,
+      b: { intent: 'followup' | 'simpler' | 'deeper' | 'concept'; text?: string; conceptId?: string },
+      onEvent: (m: SseMessage) => void,
+      signal?: AbortSignal,
+    ) => streamSse(t, `/api/v1/explanations/${explanationId}/messages`, b, onEvent, signal),
+
+    // Accounts (P1.2). With cookie auth the session lives in an httpOnly cookie; with bearer auth the token is
+    // returned once in `SignedIn.token` and the caller must keep it in secure storage (never localStorage).
+    me: () => call<MeResponse>('GET', '/api/v1/auth/me'),
+    register: (email: string, password: string) =>
+      call<SignedIn>('POST', '/api/v1/auth/register', { email, password, transport }),
+    login: (email: string, password: string) =>
+      call<SignedIn>('POST', '/api/v1/auth/login', { email, password, transport }),
+    logout: (opts: { all?: boolean } = {}) => call<void>('POST', '/api/v1/auth/logout', { all: !!opts.all }),
+    claimAnonymousWork: () => call<ClaimResponse>('POST', '/api/v1/auth/claim', {}),
+  };
+}
+
+export type ApiClient = ReturnType<typeof createApiClient>;
+
+/**
+ * The app's client. On the web: same-origin by default, or VITE_API_BASE_URL when the API is served elsewhere on the
+ * same site, with cookie authentication exactly as before P1.6. The desktop shell (P4.1) replaces it once, at start-up,
+ * with a bearer client for the configured cloud API (`useApiClient`). Modules import `api` as a live binding, so they
+ * always see the current client.
+ */
+export let api: ApiClient = createApiClient(
+  { baseUrl: import.meta.env.VITE_API_BASE_URL ?? '', auth: { kind: 'cookie' } },
+  { production: import.meta.env.PROD },
+);
+
+/** Replace the app's client (desktop shell only). */
+export function useApiClient(client: ApiClient): void {
+  api = client;
+}

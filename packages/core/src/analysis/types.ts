@@ -1,0 +1,70 @@
+import type { ExpressModel } from './express';
+
+export type SymbolKind = 'function' | 'method' | 'class' | 'variable' | 'parameter' | 'import' | 'export';
+
+export interface SymbolRow {
+  /**
+   * Stable symbol key (see symbolKey.ts): the same for unchanged code in every run and every snapshot. Persisted as
+   * `symbols.symbol_key`; the database row id is a separate per-run UUID.
+   */
+  key: string;
+  path: string;
+  name: string;
+  qualifiedName: string;
+  kind: SymbolKind;
+  tags: string[];
+  exported: boolean;
+  signature: string | null;
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+  parentKey: string | null;
+}
+
+export type EdgeType = 'imports' | 'calls' | 'references' | 'route_handler';
+
+export interface EdgeRow {
+  type: EdgeType;
+  sourceKey: string | null;
+  sourcePath: string;
+  targetKey: string | null;
+  targetPath: string | null;
+  targetExternal: string | null;
+  line: number;
+  provenance: 'verified' | 'pattern';
+  /** Set when the relationship could not be resolved statically. */
+  reason: UnresolvedReason | null;
+  meta: Record<string, unknown>;
+}
+
+export type UnresolvedReason =
+  | 'dynamic_import'
+  | 'computed_member'
+  | 'external_package'
+  | 'parse_error'
+  | 'no_declaration'
+  | 'callback_parameter';
+
+export interface Diagnostic {
+  path: string;
+  kind: 'syntax_error' | 'analysis_failed';
+  message: string;
+  line?: number;
+}
+
+export interface AnalysisInput {
+  path: string;
+  content: string;
+}
+
+export interface AnalysisResult {
+  symbols: SymbolRow[];
+  edges: EdgeRow[];
+  diagnostics: Diagnostic[];
+  /** Files that could not be analysed at all, with a reason. */
+  failedFiles: { path: string; reason: string }[];
+  timings: { projectMs: number; symbolsMs: number; edgesMs: number };
+  /** How an Express application is wired (P3.2); empty when the code has no Express app or client calls. */
+  express: ExpressModel;
+}

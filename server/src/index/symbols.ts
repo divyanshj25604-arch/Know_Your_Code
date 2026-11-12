@@ -1,0 +1,229 @@
+import { randomUUID } from 'node:crypto';
+import type { SymbolRef } from '@kyc/contracts';
+import type { Db, Queryable } from '../db/pool';
+import type { AnalysisResult } from '@kyc/core';
+
+const BATCH = 500;
+
+/**
+ * Insert one run's symbols and edges. Symbol rows get fresh per-run UUIDs; their stable identity is `symbol_key`
+ * (SymbolRow.key from @kyc/core). Call inside the content transaction after the run's files are inserted.
+ */
+export async function persistAnalysis(
+  db: Queryable,
+  snapshotId: string,
+  runId: string,
+  fileIds: Map<string, string>,
+  result: AnalysisResult,
+): Promise<{ symbols: number; edges: number }> {
+  const idByKey = new Map<string, string>();
+  for (const s of result.symbols) idByKey.set(s.key, randomUUID());
+
+  for (let i = 0; i < result.symbols.length; i += BATCH) {
+    const c = result.symbols.slice(i, i + BATCH);
+    await db.query(
+      `INSERT INTO symbols (id, snapshot_id, analysis_run_id, file_id, parent_symbol_id, name, qualified_name, kind, tags,
+                            exported, signature, start_line, start_col, end_line, end_col, symbol_key)
+       SELECT id, $1, $15, file_id, parent_id, name, qn, kind, COALESCE(string_to_array(NULLIF(tags,''), ','), '{}'), exported,
+              sig, sl, sc, el, ec, skey
+       FROM unnest($2::uuid[], $3::uuid[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::text[], $9::bool[], $10::text[],
+                   $11::int[], $12::int[], $13::int[], $14::int[], $16::text[])
+            AS t(id, file_id, parent_id, name, qn, kind, tags, exported, sig, sl, sc, el, ec, skey)`,
+      [
+        snapshotId,
+        c.map((s) => idByKey.get(s.key)),
+        c.map((s) => fileIds.get(s.path)),
+        c.map((s) => (s.parentKey ? idByKey.get(s.parentKey) : null)),
+        c.map((s) => s.name),
+        c.map((s) => s.qualifiedName),
+        c.map((s) => s.kind),
+        c.map((s) => s.tags.join(',')),
+        c.map((s) => s.exported),
+        c.map((s) => s.signature),
+        c.map((s) => s.startLine),
+        c.map((s) => s.startCol),
+        c.map((s) => s.endLine),
+        c.map((s) => s.endCol),
+        runId,
+        c.map((s) => s.key),
+      ],
+    );
+  }
+
+  const edges = result.edges.filter((e) => fileIds.has(e.sourcePath));
+  for (let i = 0; i < edges.length; i += BATCH) {
+    const c = edges.slice(i, i + BATCH);
+    await db.query(
+      `INSERT INTO edges (snapshot_id, analysis_run_id, type, source_symbol_id, source_file_id, target_symbol_id, target_file_id,
+                          target_external, line, provenance, reason, meta)
+       SELECT $1, $12, type, src, sf, tgt, tf, ext, line, prov, reason, meta::jsonb
+       FROM unnest($2::text[], $3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::text[], $8::int[], $9::text[], $10::text[], $11::text[])
+            AS t(type, src, sf, tgt, tf, ext, line, prov, reason, meta)`,
+      [
+        snapshotId,
+        c.map((e) => e.type),
+        c.map((e) => (e.sourceKey ? idByKey.get(e.sourceKey) : null)),
+        c.map((e) => fileIds.get(e.sourcePath)),
+        c.map((e) => (e.targetKey ? idByKey.get(e.targetKey) : null)),
+        c.map((e) => (e.targetPath ? (fileIds.get(e.targetPath) ?? null) : null)),
+        c.map((e) => e.targetExternal),
+        c.map((e) => e.line),
+        c.map((e) => e.provenance),
+        c.map((e) => e.reason),
+        c.map((e) => JSON.stringify(e.meta)),
+        runId,
+      ],
+    );
+  }
+  return { symbols: result.symbols.length, edges: edges.length };
+}
+
+interface SymbolDbRow {
+  id: string;
+  symbol_key: string | null;
+  name: string;
+  qualified_name: string;
+  kind: string;
+  signature: string | null;
+  path: string;
+  start_line: number;
+  start_col: number;
+  end_line: number;
+  end_col: number;
+  tags: string[];
+  exported: boolean;
+  file_id: string;
+  parent_symbol_id: string | null;
+}
+
+const SYMBOL_SELECT = `
+  SELECT s.id, s.symbol_key, s.name, s.qualified_name, s.kind, s.signature, f.path, s.start_line, s.start_col, s.end_line, s.end_col,
+         s.tags, s.exported, s.file_id, s.parent_symbol_id
+  FROM symbols s JOIN files f ON f.id = s.file_id`;
+
+const toRef = (r: SymbolDbRow): SymbolRef => ({
+  id: r.id,
+  key: r.symbol_key,
+  name: r.name,
+  kind: r.kind,
+  path: r.path,
+  startLine: r.start_line,
+  endLine: r.end_line,
+  signature: r.signature,
+});
+
+export async function getSymbol(
+  db: Db,
+  snapshotId: string,
+  id: string,
+): Promise<
+  | (SymbolRef & {
+      qualifiedName: string;
+      tags: string[];
+      fileId: string;
+      exported: boolean;
+      startCol: number;
+      endCol: number;
+      parentId: string | null;
+    })
+  | null
+> {
+  const r = await db.query<SymbolDbRow>(`${SYMBOL_SELECT} WHERE s.id=$1 AND s.snapshot_id=$2`, [
+    id,
+    snapshotId,
+  ]);
+  const x = r.rows[0];
+  return x
+    ? {
+        ...toRef(x),
+        qualifiedName: x.qualified_name,
+        tags: x.tags,
+        fileId: x.file_id,
+        exported: x.exported,
+        startCol: x.start_col,
+        endCol: x.end_col,
+        parentId: x.parent_symbol_id,
+      }
+    : null;
+}
+
+export async function getSymbolSnapshot(db: Db, id: string): Promise<string | null> {
+  const r = await db.query<{ snapshot_id: string }>('SELECT snapshot_id FROM symbols WHERE id=$1', [id]);
+  return r.rows[0]?.snapshot_id ?? null;
+}
+
+/**
+ * Smallest function/method/class symbol that contains the selection. Parameters, imports and variables are not
+ * "enclosing" scopes for explanation purposes.
+ */
+export async function enclosingSymbol(
+  db: Db,
+  snapshotId: string,
+  path: string,
+  sel: { startLine: number; startCol: number; endLine: number; endCol: number },
+): Promise<SymbolRef | null> {
+  const r = await db.query<SymbolDbRow>(
+    `${SYMBOL_SELECT}
+     WHERE s.snapshot_id=$1 AND f.path=$2 AND s.kind IN ('function','method','class')
+       AND (s.start_line, s.start_col) <= ($3::int, $4::int) AND (s.end_line, s.end_col) >= ($5::int, $6::int)
+     ORDER BY (s.end_line - s.start_line) ASC, (s.end_col - s.start_col) ASC LIMIT 1`,
+    [snapshotId, path, sel.startLine, sel.startCol, sel.endLine, sel.endCol],
+  );
+  return r.rows[0] ? toRef(r.rows[0]) : null;
+}
+
+export async function symbolsInFile(
+  db: Db,
+  snapshotId: string,
+  path: string,
+  kinds: string[],
+): Promise<(SymbolRef & { startCol: number; endCol: number })[]> {
+  const r = await db.query<SymbolDbRow>(
+    `${SYMBOL_SELECT} WHERE s.snapshot_id=$1 AND f.path=$2 AND s.kind = ANY($3::text[]) ORDER BY s.start_line, s.start_col`,
+    [snapshotId, path, kinds],
+  );
+  return r.rows.map((x) => ({ ...toRef(x), startCol: x.start_col, endCol: x.end_col }));
+}
+
+/** Most-used functions/classes by inbound call + reference + route edges (starting points, docs/01 FR-OVR-03). */
+export async function topSymbols(
+  db: Queryable,
+  snapshotId: string,
+  limit: number,
+): Promise<{ id: string; name: string; path: string; line: number; uses: number }[]> {
+  const r = await db.query<{
+    id: string;
+    qualified_name: string;
+    path: string;
+    start_line: number;
+    uses: number;
+  }>(
+    `SELECT s.id, s.qualified_name, f.path, s.start_line, count(*)::int AS uses
+     FROM edges e JOIN symbols s ON s.id = e.target_symbol_id JOIN files f ON f.id = s.file_id
+     WHERE e.snapshot_id=$1 AND e.type IN ('calls','references','route_handler')
+       AND s.kind IN ('function','method','class') AND s.tags::text NOT LIKE '%callback%'
+       AND f.path !~* '(^|/)(tests?|__tests__|spec|specs|e2e|fixtures?|mocks?)/|\\.(test|spec)\\.[a-z]+$'
+     GROUP BY s.id, s.qualified_name, f.path, s.start_line ORDER BY uses DESC, f.path, s.start_line LIMIT $2`,
+    [snapshotId, limit],
+  );
+  return r.rows.map((x) => ({
+    id: x.id,
+    name: x.qualified_name,
+    path: x.path,
+    line: x.start_line,
+    uses: x.uses,
+  }));
+}
+
+export async function counts(
+  db: Queryable,
+  snapshotId: string,
+): Promise<{ symbols: number; edges: number; unresolved: number }> {
+  const r = await db.query<{ symbols: number; edges: number; unresolved: number }>(
+    `SELECT (SELECT count(*)::int FROM symbols WHERE snapshot_id=$1) AS symbols,
+            (SELECT count(*)::int FROM edges WHERE snapshot_id=$1) AS edges,
+            (SELECT count(*)::int FROM edges WHERE snapshot_id=$1 AND reason IS NOT NULL AND reason <> 'external_package') AS unresolved`,
+    [snapshotId],
+  );
+  return r.rows[0]!;
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // Tests run under Node (Vitest) and may use Node APIs to read fixtures; the source itself may not.
+  "compilerOptions": { "lib": ["ES2022"], "types": ["node"] },
+  "include": ["src", "tests", "vitest.config.ts"],
+  "exclude": ["tests/fixtures"]
+}

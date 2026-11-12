@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // The runtime boundary is enforced by the compiler: no Node, DOM or other host typings are visible to core source,
+  // so `process`, `Buffer`, `setImmediate` or a `node:*` import fails the build (see tests/boundary.test.ts too).
+  "compilerOptions": { "lib": ["ES2022"], "types": [] },
+  "include": ["src"]
+}
