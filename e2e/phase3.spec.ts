@@ -158,9 +158,7 @@ test.describe('P3.2 request flows and P3.6 walkthrough', () => {
 });
 
 test.describe('P3.7 learning paths', () => {
-  test('a path with a mission, lessons and a knowledge check is completed and recorded', async ({
-    page,
-  }) => {
+  test('a path with a mission, lessons and a knowledge check is completed and recorded', async ({ page }) => {
     await openWorkspace(page);
     await goMode(page, 'Project');
     const card = page.getByRole('listitem', { name: 'Path Follow a request: POST /auth/login' });
